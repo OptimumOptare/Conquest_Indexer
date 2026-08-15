@@ -1,0 +1,31 @@
+{
+  "name": "schizo-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Schizo Conquest history indexer — GET /snapshot, GET /events?since= (UD21).",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "sync:abis": "node scripts/sync-abis.mjs",
+    "sync:abis:check": "node scripts/sync-abis.mjs --check",
+    "ci": "npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "viem": "^2.55.11"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.7"
+  }
+}

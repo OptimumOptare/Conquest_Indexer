@@ -1,0 +1,638 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "admin_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "activate",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "activatedLevelOf",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "admin",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IAdminController"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "bloodRitualBps",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "choosePath",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "path",
+        "type": "uint8",
+        "internalType": "enum SchizoTypes.ResearchPath"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "deploy",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "target",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "fortificationBps",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "hasPlunder",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "hasTeleportation",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "loadWeaponDefs",
+    "inputs": [
+      {
+        "name": "ids",
+        "type": "uint16[]",
+        "internalType": "uint16[]"
+      },
+      {
+        "name": "paths",
+        "type": "uint8[]",
+        "internalType": "uint8[]"
+      },
+      {
+        "name": "kinds",
+        "type": "uint8[]",
+        "internalType": "uint8[]"
+      },
+      {
+        "name": "maxLevels",
+        "type": "uint8[]",
+        "internalType": "uint8[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "massConscriptionBps",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "necromancyWindow",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "until",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "deaths",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "onTroopDeaths",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "pathOf",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "enum SchizoTypes.ResearchPath"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "purchase",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "purchaseCountOf",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "research",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "resolveNecromancy",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "stockpileOf",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "techLevelOf",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "weaponDef",
+    "inputs": [
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ITechWeapons.WeaponDef",
+        "components": [
+          {
+            "name": "path",
+            "type": "uint8",
+            "internalType": "enum SchizoTypes.ResearchPath"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "internalType": "enum SchizoTypes.WeaponKind"
+          },
+          {
+            "name": "maxLevel",
+            "type": "uint8",
+            "internalType": "uint8"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "NecromancyResolved",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "troopsRevived",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "forfeited",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PathChosen",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "path",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum SchizoTypes.ResearchPath"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WeaponDeployed",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "target",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WeaponPurchased",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WeaponResearched",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "weaponId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "newLevel",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AlreadyLoaded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmptyStockpile",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidLoadData",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidTarget",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LengthMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MaxLevelReached",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotActiveWeapon",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAuthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotLeader",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotPermaWeapon",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotResearched",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PathLocked",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WindowNotElapsed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongPath",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongPhase",
+    "inputs": []
+  }
+]
