@@ -25,6 +25,13 @@
   },
   {
     "type": "function",
+    "name": "advanceTick",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "applyEMP",
     "inputs": [
       {
@@ -239,6 +246,19 @@
   },
   {
     "type": "function",
+    "name": "infectedCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isAlive",
     "inputs": [
       {
@@ -372,24 +392,6 @@
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "proveInfection",
-    "inputs": [
-      {
-        "name": "target",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "infectedNeighbor",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -812,6 +814,31 @@
         "type": "uint16",
         "indexed": true,
         "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TickAdvanced",
+    "inputs": [
+      {
+        "name": "tick",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "stamped",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "folded",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false

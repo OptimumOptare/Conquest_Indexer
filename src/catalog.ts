@@ -35,12 +35,18 @@ const ACTIVITY = new Set([
   'FaucetCollectionSet',
 ]);
 
+/**
+ * §16 News, plus one D16 ops event: `TickAdvanced` is the infection ticker (T68). It sits here
+ * rather than in meta because meta has no reader-facing surface (§6.1 has three tabs), and it is
+ * the summary row for the `InfectionSpread` stamps it shares a transaction with.
+ */
 const NEWS = new Set([
   'PathChosen',
   'WeaponResearched',
   'WeaponPurchased',
   'WeaponDeployed',
   'InfectionSpread',
+  'TickAdvanced',
   'NecromancyResolved',
   'NationEliminated',
 ]);

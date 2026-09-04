@@ -670,6 +670,11 @@
   },
   {
     "type": "error",
+    "name": "TickDurationLocked",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "WrongPhase",
     "inputs": []
   }
