@@ -38,6 +38,8 @@ const config: Config = {
   logRangeMaxBlocks: 1_000,
   catchupConcurrency: 2,
   reorgDepthBlocks: 8,
+  backfillRpcHttp: null,
+  backfillLogRangeMaxBlocks: 1_000_000,
 };
 
 function hash(n: number): Hex {
@@ -280,6 +282,79 @@ describe('ingest', () => {
   });
 });
 
+describe('rpc routing (rate-limited backfill endpoint)', () => {
+  /** Counts getLogs calls and the widest range each endpoint was asked for. */
+  function countingLogs() {
+    const spans: number[] = [];
+    return {
+      spans,
+      client: {
+        getLogs: async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+          spans.push(Number(toBlock - fromBlock + 1n));
+          return [];
+        },
+      },
+    };
+  }
+
+  const wide: Config = {
+    ...config,
+    startBlock: 100n,
+    backfillRpcHttp: 'https://backfill.invalid',
+    logRangeMaxBlocks: 100,
+  };
+
+  it('sends a cold-start backfill to the wide endpoint in one request', async () => {
+    const store = openStore(':memory:', 100n);
+    const backfill = countingLogs();
+    const tail = countingLogs();
+    const chain = { ...fakeChain([], 50_100n).client, getLogs: tail.client.getLogs };
+    const ingestor = createIngestor(wide, store, chain as never, backfill.client as never);
+
+    await ingestor.tick();
+
+    // 50,000 blocks behind: one wide request, and the rate-limited endpoint sees nothing else.
+    expect(backfill.spans).toEqual([50_001]);
+    expect(tail.spans).toEqual([]);
+    expect(ingestor.status().backfillRequests).toBe(1);
+    store.close();
+  });
+
+  it('keeps the tail off the rate-limited endpoint entirely', async () => {
+    const store = openStore(':memory:', 100n);
+    store.commit([], { nextFrom: 108n, confirmedHash: hash(107) });
+    const backfill = countingLogs();
+    const tail = countingLogs();
+    const chain = { ...fakeChain([], 110n).client, getLogs: tail.client.getLogs };
+    const ingestor = createIngestor(wide, store, chain as never, backfill.client as never);
+
+    await ingestor.tick();
+
+    // A 3-block gap fits one tail request, so the backfill endpoint is never called.
+    expect(tail.spans).toEqual([3]);
+    expect(backfill.spans).toEqual([]);
+    expect(ingestor.status().backfillRequests).toBe(0);
+    store.close();
+  });
+
+  it('falls back to the tail endpoint when no backfill endpoint is configured', async () => {
+    const store = openStore(':memory:', 100n);
+    const tail = countingLogs();
+    const chain = { ...fakeChain([], 500n).client, getLogs: tail.client.getLogs };
+    const ingestor = createIngestor(wide, store, chain as never, null);
+
+    await ingestor.tick();
+
+    // One tick covers rangeMax x concurrency = 200 blocks as two capped requests, all on the
+    // tail endpoint; the remaining 200 blocks take further ticks. This is the slow path the
+    // backfill endpoint exists to avoid.
+    expect(tail.spans).toEqual([100, 100]);
+    expect(store.getCursor().nextFrom).toBe(300n);
+    expect(ingestor.status().backfillRequests).toBe(0);
+    store.close();
+  });
+});
+
 describe('http surface', () => {
   const status: IngestStatus = {
     headBlock: 106n,
@@ -287,6 +362,7 @@ describe('http surface', () => {
     catchingUp: false,
     lastError: null,
     lastTickAt: Date.now(),
+    backfillRequests: 0,
   };
   const ingestor = { status: () => status } as unknown as Ingestor;
 

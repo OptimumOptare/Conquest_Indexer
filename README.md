@@ -36,8 +36,9 @@ npm install
 npm run dev
 ```
 
-Against a live chain, set `START_BLOCK` near the tip for a quick local run — the default is the
-AdminController deploy block, which is a full history crawl. Point the frontend at it by editing
+On HyperRPC the default `START_BLOCK` (the AdminController deploy block) backfills the whole
+chain in seconds, so leave it alone. On a range-capped RPC, set it near the tip for a quick
+local run. Point the frontend at it by editing
 `ui/public/config.json` in the game repo:
 
 ```json
@@ -54,9 +55,10 @@ or the browser blocks it as mixed content.
    selects the Dockerfile build and the `/health` healthcheck; nothing else to configure.
 2. **Add a Volume** mounted at `/data`. Without it the SQLite file lives in the container
    filesystem and every deploy re-crawls the chain from `START_BLOCK`.
-3. Set variables: `RPC_HTTP` (give the indexer its **own** key — a blown quota must not take the
-   game's RPC down with it), `ALLOWED_ORIGINS` (the site origin, no trailing slash), `CHAIN_ID`,
-   `START_BLOCK`, and `DB_PATH=/data/indexer.db` (already the Dockerfile default).
+3. Set variables: `RPC_HTTP` (steady state — the public Monad endpoint is fine; give the indexer
+   its **own** key if you use a keyed one), `BACKFILL_RPC_HTTP` (HyperRPC — see below),
+   `ALLOWED_ORIGINS` (the site origin, no trailing slash), `CHAIN_ID`, `START_BLOCK`, and
+   `DB_PATH=/data/indexer.db` (already the Dockerfile default).
 4. **Settings → Networking → Custom Domain**: add `indexer.<yourdomain>` and the CNAME Railway
    gives you. TLS is automatic. UD22 requires a stable custom domain from day one — the runtime
    config exists so the domain can move, not so it can be temporary.
@@ -66,12 +68,45 @@ or the browser blocks it as mixed content.
 Cost: one ~512 MB service plus a small volume, comfortably inside Railway's $5/mo Hobby credit.
 The image is a plain Dockerfile, so the same build runs on Fly.io or any VPS if you outgrow it.
 
-### RPC budget
+### RPC choice and budget
 
-Monad's ~0.4 s blocks are ~216k blocks/day. At `POLL_INTERVAL_MS=1000` this service issues
-~86k `eth_getLogs` + `eth_getBlockNumber` pairs a day; at 2 s, half that. That is a second
-consumer alongside every browser, so check it against your provider's quota before alpha and
-give it a separate key.
+**Two endpoints, split by job** — `RPC_HTTP` for the steady state, `BACKFILL_RPC_HTTP` for the
+cold start. They have opposite requirements:
+
+| | Job | Needs | Gets called |
+|---|---|---|---|
+| `RPC_HTTP` | tail: block number, block hash, ~3-block `getLogs` | a rate allowance (~2-4 req/s) | constantly |
+| `BACKFILL_RPC_HTTP` | close a gap wider than `LOG_RANGE_MAX_BLOCKS` | a huge `getLogs` range | cold start, long outage |
+
+That split is what makes a rate-limited endpoint usable. **HyperRPC advertises 5 requests/minute
+on the free tier**, which would be hopeless for a 1 s poll — but a full deploy → tip backfill
+costs 1–3 requests there and steady state costs **zero**. Verified: after backfilling 1,996,341
+blocks, `backfillRequests` stayed frozen while the tail ingested 154 blocks over 45 s. (Measured
+99 req/min sustained against HyperRPC without throttling, so the documented limit does not appear
+to be enforced today — the split means it does not matter either way.)
+
+`/health` reports `backfillRequests` so you can confirm this in production.
+
+The tail's range needs are trivial, so no provider's range cap matters on `RPC_HTTP` — the public
+Monad endpoint's 100-block cap is 30× what a tick asks for. Caps only ever hurt the backfill:
+
+| Endpoint | `eth_getLogs` range cap | Deploy → tip backfill (1,996,341 blocks) |
+|---|---|---|
+| **HyperRPC** | none observed (1M tested) | **1 request, 271 logs, 0.2 MB, 0.22 s** |
+| public `testnet-rpc.monad.xyz` | 100 blocks | ~17,300 requests |
+| Alchemy free tier | 10 blocks | ~200,000 requests |
+
+Verified end to end: with `BACKFILL_RPC_HTTP` set to HyperRPC and `RPC_HTTP` on the public Monad
+endpoint, this service backfills from the deploy block to the chain tip (`lagBlocks: 0`, 271
+events) in seconds, then tails on the public endpoint alone.
+
+HyperRPC does **not** implement `eth_call` (`-32601`), which is why the game frontend cannot
+switch to it wholesale — every lens read is an `eth_call`. That constraint does not apply here.
+
+Steady state: Monad testnet produces ~3.35 blocks/s (measured), ~289k blocks/day. At
+`POLL_INTERVAL_MS=1000` this service issues ~86k `eth_getLogs` + `eth_blockNumber` pairs a day,
+each covering ~3 blocks; at 2 s, half that. Give it its own key either way, so a blown quota
+cannot take the game's RPC down with it.
 
 ## Keeping in sync with the game repo
 

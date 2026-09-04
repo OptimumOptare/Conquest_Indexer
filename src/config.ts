@@ -62,7 +62,21 @@ const MONAD_TESTNET_START_BLOCK = 51_988_283;
 
 export type Config = {
   readonly chainId: number;
+  /**
+   * Steady-state RPC. Every `eth_blockNumber` / `eth_getBlockByNumber` and every tail
+   * `eth_getLogs` goes here. The tail asks for ~3-block ranges, so **no provider's range cap
+   * matters on this endpoint** — the caps only ever hurt a backfill.
+   */
   readonly rpcHttp: string;
+  /**
+   * Optional wide-range RPC used **only** for `eth_getLogs` when the gap is bigger than one
+   * `logRangeMaxBlocks` request — i.e. a cold start or a long outage. This is what makes a
+   * rate-limited endpoint like HyperRPC's free tier (5 req/min) usable: a full deploy → tip
+   * backfill spends exactly one request here, and steady state spends none.
+   */
+  readonly backfillRpcHttp: string | null;
+  /** Range cap on the backfill endpoint. HyperRPC has none, so go wide. */
+  readonly backfillLogRangeMaxBlocks: number;
   readonly contracts: Record<ContractName, `0x${string}`>;
   readonly startBlock: bigint;
   readonly port: number;
@@ -71,10 +85,10 @@ export type Config = {
   readonly allowedOrigins: readonly string[];
   readonly pollIntervalMs: number;
   /**
-   * Provider cap on one `eth_getLogs` span. **Measured 100** on `testnet-rpc.monad.xyz`
-   * (2026-08-15): a 1,000-block range is rejected with "eth_getLogs is limited to a 100 range".
-   * Q-U36 recorded 1,000 when it was measured; the public endpoint has tightened since. Keyed
-   * providers allow more — raise this there, it is the single biggest lever on catch-up time.
+   * Provider cap on one `eth_getLogs` span on `rpcHttp`. **Measured 100** on
+   * `testnet-rpc.monad.xyz` and **10** on Alchemy's free tier (2026-08-15); Q-U36 recorded
+   * 1,000 when it was measured, so the public endpoint has tightened since. Either is far more
+   * than a tail tick needs (~3 blocks) — it only decides when the backfill endpoint takes over.
    */
   readonly logRangeMaxBlocks: number;
   /** Parallel range requests during the initial catch-up. */
@@ -124,6 +138,11 @@ export function loadConfig(): Config {
   return {
     chainId: intEnv('CHAIN_ID', 10_143),
     rpcHttp,
+    backfillRpcHttp: env('BACKFILL_RPC_HTTP') ?? null,
+    // Wide enough that a cold start closes the whole deploy → tip gap in a single request.
+    // A 1M window needed three (the gap is ~2M and each tick covers one window), which matters
+    // only because the backfill endpoint is the rate-limited one.
+    backfillLogRangeMaxBlocks: intEnv('BACKFILL_LOG_RANGE_MAX_BLOCKS', 50_000_000),
     contracts,
     startBlock: BigInt(intEnv('START_BLOCK', MONAD_TESTNET_START_BLOCK)),
     port: intEnv('PORT', 8787),
@@ -134,7 +153,7 @@ export function loadConfig(): Config {
       .filter((origin) => origin !== ''),
     pollIntervalMs: intEnv('POLL_INTERVAL_MS', 1_000),
     logRangeMaxBlocks: intEnv('LOG_RANGE_MAX_BLOCKS', 100),
-    catchupConcurrency: intEnv('CATCHUP_CONCURRENCY', 8),
+    catchupConcurrency: intEnv('CATCHUP_CONCURRENCY', 4),
     reorgDepthBlocks: intEnv('REORG_DEPTH_BLOCKS', 128),
   };
 }

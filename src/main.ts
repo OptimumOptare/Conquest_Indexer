@@ -8,12 +8,21 @@
 
 import { loadConfig } from './config.js';
 import { openStore } from './db.js';
-import { createIngestor, createRpcClient } from './ingest.js';
+import {
+  createBackfillClient,
+  createIngestor,
+  createRpcClient,
+} from './ingest.js';
 import { startServer } from './server.js';
 
 const config = loadConfig();
 const store = openStore(config.dbPath, config.startBlock);
-const ingestor = createIngestor(config, store, createRpcClient(config));
+const ingestor = createIngestor(
+  config,
+  store,
+  createRpcClient(config),
+  createBackfillClient(config),
+);
 const server = startServer(config, store, ingestor);
 
 void ingestor.start();

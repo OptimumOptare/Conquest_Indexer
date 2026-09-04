@@ -99,6 +99,7 @@ export function createHttpHandler(
                 : 0n
               ).toString(),
               catchingUp: status.catchingUp,
+              backfillRequests: status.backfillRequests,
               events: store.eventCount(),
               lastTickAt: status.lastTickAt,
               lastError: status.lastError,

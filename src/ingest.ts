@@ -43,11 +43,28 @@ export type IngestStatus = {
   catchingUp: boolean;
   lastError: string | null;
   lastTickAt: number | null;
+  /** `eth_getLogs` calls sent to the wide-range backfill endpoint since boot. */
+  backfillRequests: number;
 };
 
 export function createRpcClient(config: Config): PublicClient {
   return createPublicClient({
     transport: http(config.rpcHttp, { batch: false, retryCount: 2 }),
+  });
+}
+
+/**
+ * Wide-range `eth_getLogs` client, or null when none is configured.
+ *
+ * Kept separate from the steady-state client on purpose: the backfill endpoint is chosen for
+ * range, not for rate. HyperRPC answers a 2M-block range in one request but its free tier allows
+ * 5 requests/minute — fine for a once-per-cold-start backfill, hopeless for a 1 s poll. Routing
+ * only the big `getLogs` here keeps both properties.
+ */
+export function createBackfillClient(config: Config): PublicClient | null {
+  if (config.backfillRpcHttp === null) return null;
+  return createPublicClient({
+    transport: http(config.backfillRpcHttp, { batch: false, retryCount: 2 }),
   });
 }
 
@@ -133,6 +150,7 @@ export function createIngestor(
   config: Config,
   store: Store,
   client: Pick<PublicClient, 'getBlockNumber' | 'getBlock' | 'getLogs'>,
+  backfillClient: Pick<PublicClient, 'getLogs'> | null = null,
 ): Ingestor {
   const addresses = CONTRACT_NAMES.map(
     (name) => config.contracts[name] as Address,
@@ -142,6 +160,8 @@ export function createIngestor(
   );
   const rangeMax = BigInt(config.logRangeMaxBlocks);
 
+  const backfillRangeMax = BigInt(config.backfillLogRangeMaxBlocks);
+
   let stopped = false;
   const status: IngestStatus = {
     headBlock: store.headBlock(),
@@ -149,16 +169,29 @@ export function createIngestor(
     catchingUp: true,
     lastError: null,
     lastTickAt: null,
+    backfillRequests: 0,
   };
 
-  async function fetchRange(from: bigint, to: bigint): Promise<StoredLog[]> {
-    const chunks = rangeChunks(from, to, rangeMax);
+  async function fetchRange(
+    from: bigint,
+    to: bigint,
+    viaBackfill: boolean,
+  ): Promise<StoredLog[]> {
+    const source = viaBackfill && backfillClient !== null ? backfillClient : client;
+    const chunks = rangeChunks(
+      from,
+      to,
+      viaBackfill ? backfillRangeMax : rangeMax,
+    );
+    // The backfill endpoint is rate-limited, not range-limited: never fan out on it.
+    const concurrency = viaBackfill ? 1 : config.catchupConcurrency;
     const out: StoredLog[] = [];
-    for (let i = 0; i < chunks.length; i += config.catchupConcurrency) {
-      const slice = chunks.slice(i, i + config.catchupConcurrency);
+    for (let i = 0; i < chunks.length; i += concurrency) {
+      const slice = chunks.slice(i, i + concurrency);
+      if (viaBackfill) status.backfillRequests += slice.length;
       const batches = await Promise.all(
         slice.map((chunk) =>
-          client.getLogs({
+          source.getLogs({
             address: addresses,
             fromBlock: chunk.from,
             toBlock: chunk.to,
@@ -219,11 +252,19 @@ export function createIngestor(
       return 0;
     }
 
-    const maxWindow = rangeMax * BigInt(config.catchupConcurrency);
+    // Route by gap, not by phase: if the steady-state endpoint would need more than one
+    // request to close it, this is a backfill (cold start, or a long outage) and belongs on
+    // the wide-range endpoint. At the tip the gap is ~3 blocks, so the tail never touches it.
+    const gap = tip - cursor.nextFrom + 1n;
+    const viaBackfill = backfillClient !== null && gap > rangeMax;
+
+    const maxWindow = viaBackfill
+      ? backfillRangeMax
+      : rangeMax * BigInt(config.catchupConcurrency);
     const windowEnd = cursor.nextFrom + maxWindow - 1n;
     const toBlock = windowEnd < tip ? windowEnd : tip;
 
-    const logs = await fetchRange(cursor.nextFrom, toBlock);
+    const logs = await fetchRange(cursor.nextFrom, toBlock, viaBackfill);
     const confirmed = await client.getBlock({ blockNumber: toBlock });
     store.commit(logs, {
       nextFrom: toBlock + 1n,
