@@ -47,18 +47,18 @@ export const CONTRACT_NAMES: readonly ContractName[] = [
   'diplomacy',
 ];
 
-/** T58 redeploy, Monad testnet (10143). Mirrors the UI address book. */
+/** T58 redeploy (alpha stack), Monad testnet (10143). Mirrors the UI address book. */
 const MONAD_TESTNET_CONTRACTS: Record<ContractName, string> = {
-  adminController: '0xD88E2085D19666707600480b37D53D8294c26bE7',
-  playerRegistry: '0x8Ed9A59A097683064E6421cC37230656C0ccA800',
-  economy: '0xF03301044D2C5b90A16353e4D76b6cE8d6F1e629',
-  combat: '0xD08C80b9358cbEEB018Eb5863d2AfD22DA762310',
-  techWeapons: '0xF3b42B4754b6e79400Df77ADAF07030F34026819',
-  diplomacy: '0xC443014E6f1d47Acb766e93A299997E5Ca4Cc8a1',
+  adminController: '0x3Ae03045432dE5f66aaB9f1B58294E5879C1Be64',
+  playerRegistry: '0xa1B7627463DeD57b7E517Fb4E08023524FB5FD95',
+  economy: '0x4f701cB159021E5B2d9554947118119c681717c9',
+  combat: '0xEf1b990C6cB2E653b089688562A36585ee33d8e5',
+  techWeapons: '0xb664AEB222a4ACAe5511301AFAb38C5Ee5cA39B4',
+  diplomacy: '0xC6546e2ad878775a41aE2Ea12711CCEc18d25249',
 };
 
 /** AdminController creation block — the deploy anchor the browser must never crawl from. */
-const MONAD_TESTNET_START_BLOCK = 51_988_283;
+const MONAD_TESTNET_START_BLOCK = 59_761_881;
 
 export type Config = {
   readonly chainId: number;

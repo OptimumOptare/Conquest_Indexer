@@ -16,19 +16,19 @@ import type { IngestStatus, Ingestor } from '../src/ingest.js';
 
 const CHAIN = 10_143;
 const PLAYER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' as const;
-const COMBAT = '0xD08C80b9358cbEEB018Eb5863d2AfD22DA762310' as const;
-const ADMIN = '0xD88E2085D19666707600480b37D53D8294c26bE7' as const;
+const COMBAT = '0xEf1b990C6cB2E653b089688562A36585ee33d8e5' as const;
+const ADMIN = '0x3Ae03045432dE5f66aaB9f1B58294E5879C1Be64' as const;
 
 const config: Config = {
   chainId: CHAIN,
   rpcHttp: 'http://rpc.invalid',
   contracts: {
     adminController: ADMIN,
-    playerRegistry: '0x8Ed9A59A097683064E6421cC37230656C0ccA800',
-    economy: '0xF03301044D2C5b90A16353e4D76b6cE8d6F1e629',
+    playerRegistry: '0xa1B7627463DeD57b7E517Fb4E08023524FB5FD95',
+    economy: '0x4f701cB159021E5B2d9554947118119c681717c9',
     combat: COMBAT,
-    techWeapons: '0xF3b42B4754b6e79400Df77ADAF07030F34026819',
-    diplomacy: '0xC443014E6f1d47Acb766e93A299997E5Ca4Cc8a1',
+    techWeapons: '0xb664AEB222a4ACAe5511301AFAb38C5Ee5cA39B4',
+    diplomacy: '0xC6546e2ad878775a41aE2Ea12711CCEc18d25249',
   },
   startBlock: 100n,
   port: 0,
