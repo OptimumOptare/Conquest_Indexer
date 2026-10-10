@@ -19,12 +19,25 @@ import {
   type PublicClient,
 } from 'viem';
 import schizoCoreAbi from './abis/SchizoCore.json' with { type: 'json' };
+import schizoLensAbi from './abis/SchizoLens.json' with { type: 'json' };
 import { categorizeEvent } from './catalog.js';
 import type { Config } from './config.js';
 import type { Cursor, Store, StoredLog } from './db.js';
+import {
+  logKey,
+  necromancyRequest,
+  type NecromancyRequest,
+  type PresencePair,
+} from './indexes.js';
 
 /** One ABI for the whole §16 catalogue: `SchizoCore` emits every event (M19a). */
 const CORE_ABI = schizoCoreAbi as Abi;
+const LENS_ABI = schizoLensAbi as Abi;
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+/** The two `SchizoLens.PackedNation` fields the necromancy pair needs. */
+type NationLeaderCapital = { readonly leader: string; readonly capital: number };
 
 export type IngestStatus = {
   headBlock: bigint;
@@ -129,6 +142,8 @@ function rangeChunks(
 export type Ingestor = {
   /** One catch-up window or tail step. Returns rows written. */
   tick: () => Promise<number>;
+  /** Build `players` / `presence` from stored events if they are not built yet. */
+  ensureIndexes: () => Promise<void>;
   start: () => Promise<void>;
   stop: () => void;
   status: () => IngestStatus;
@@ -137,10 +152,11 @@ export type Ingestor = {
 export function createIngestor(
   config: Config,
   store: Store,
-  client: Pick<PublicClient, 'getBlockNumber' | 'getBlock' | 'getLogs'>,
+  client: Pick<PublicClient, 'getBlockNumber' | 'getBlock' | 'getLogs' | 'readContract'>,
   backfillClient: Pick<PublicClient, 'getLogs'> | null = null,
 ): Ingestor {
   const coreAddress = config.contracts.core as Address;
+  const lensAddress = config.contracts.lens as Address;
   const rangeMax = BigInt(config.logRangeMaxBlocks);
 
   const backfillRangeMax = BigInt(config.backfillLogRangeMaxBlocks);
@@ -197,6 +213,54 @@ export function createIngestor(
     );
   }
 
+  /**
+   * (leader, capital) for each crediting `NecromancyResolved` (Q-U19), read from
+   * `SchizoLens.getNations` **at the log's block**: the credit went to whoever led the nation
+   * then, and leadership is not rebuilt from `LeaderChanged`. This is the service's only
+   * `eth_call`, one per block that resolved a window, so it is rare.
+   */
+  async function resolveNecromancy(
+    requests: readonly NecromancyRequest[],
+  ): Promise<Map<string, PresencePair>> {
+    const credits = new Map<string, PresencePair>();
+    const nationsAt = new Map<bigint, readonly NationLeaderCapital[]>();
+    for (const request of requests) {
+      let nations = nationsAt.get(request.blockNumber);
+      if (nations === undefined) {
+        nations = (await client.readContract({
+          address: lensAddress,
+          abi: LENS_ABI,
+          functionName: 'getNations',
+          blockNumber: request.blockNumber,
+        })) as readonly NationLeaderCapital[];
+        nationsAt.set(request.blockNumber, nations);
+      }
+      // getNations returns nation ids 1..count in order.
+      const nation = nations[request.nationId - 1];
+      if (nation === undefined) {
+        // SchizoCore just emitted this id, so a lens without it is the wrong lens.
+        throw new Error(
+          `getNations at block ${request.blockNumber} has no nation ${request.nationId}`,
+        );
+      }
+      if (nation.leader.toLowerCase() === ZERO_ADDRESS || nation.capital <= 0) continue;
+      credits.set(logKey(request.blockNumber, request.logIndex), {
+        player: nation.leader.toLowerCase(),
+        province: nation.capital,
+      });
+    }
+    return credits;
+  }
+
+  /**
+   * Boot backfill of `players` / `presence` from the stored `events` (never a chain crawl), for a
+   * database that predates them. A no-op once built: `commit` keeps them current after that.
+   */
+  async function ensureIndexes(): Promise<void> {
+    if (store.indexesReady()) return;
+    store.rebuildIndexes(await resolveNecromancy(store.necromancyRequests()));
+  }
+
   /** Parent-hash check on the block below the cursor — the same rule `logs.ts` uses. */
   async function detectReorg(cursor: Cursor): Promise<boolean> {
     if (cursor.confirmedHash === null || cursor.nextFrom === 0n) return false;
@@ -248,11 +312,15 @@ export function createIngestor(
     const toBlock = windowEnd < tip ? windowEnd : tip;
 
     const logs = await fetchRange(cursor.nextFrom, toBlock, viaBackfill);
+    const necromancy = await resolveNecromancy(
+      logs.flatMap((log) => necromancyRequest(log) ?? []),
+    );
     const confirmed = await client.getBlock({ blockNumber: toBlock });
-    store.commit(logs, {
-      nextFrom: toBlock + 1n,
-      confirmedHash: confirmed.hash,
-    });
+    store.commit(
+      logs,
+      { nextFrom: toBlock + 1n, confirmedHash: confirmed.hash },
+      necromancy,
+    );
 
     status.headBlock = toBlock;
     status.catchingUp = toBlock < tip;
@@ -264,6 +332,7 @@ export function createIngestor(
     stopped = false;
     while (!stopped) {
       try {
+        await ensureIndexes();
         await tick();
         status.lastError = null;
       } catch (error) {
@@ -282,6 +351,7 @@ export function createIngestor(
 
   return {
     tick,
+    ensureIndexes,
     start,
     stop() {
       stopped = true;

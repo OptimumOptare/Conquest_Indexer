@@ -1,17 +1,23 @@
 import { describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   encodeAbiParameters,
   encodeEventTopics,
   type Abi,
+  type AbiEvent,
   type Hex,
 } from 'viem';
 import coreAbi from '../src/abis/SchizoCore.json' with { type: 'json' };
 import { categorizeEvent, FEED_BUFFER_LIMITS } from '../src/catalog.js';
 import type { Config } from '../src/config.js';
-import { openStore, type StoredLog } from '../src/db.js';
+import { openStore, type Store, type StoredLog } from '../src/db.js';
 import { createHttpHandler } from '../src/server.js';
 import { createIngestor, toStoredLog } from '../src/ingest.js';
 import type { IngestStatus, Ingestor } from '../src/ingest.js';
+import { troopPresencePairs } from '../src/indexes.js';
 
 const CHAIN = 10_143;
 const PLAYER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' as const;
@@ -438,5 +444,441 @@ describe('http surface', () => {
     const response = await call('/health');
     expect(response.status).toBe(200);
     expect(response.body.lagBlocks).toBe('4');
+  });
+});
+
+// --- U22.1: /players + /presence (UD24) -------------------------------------------------------
+
+// ALICE and BOB are lowercase and sort as named. LEADER is mixed case, so every assertion on it
+// also checks that the wire lowercases addresses.
+const ALICE = '0xa11ce00000000000000000000000000000000000' as const;
+const BOB = '0xb0b0000000000000000000000000000000000000' as const;
+const LEADER = '0x1EADe20000000000000000000000000000000001' as const;
+
+/** Any SchizoCore event, encoded the way the chain would emit it. */
+function coreLog(
+  eventName: string,
+  args: Record<string, unknown>,
+  blockNumber: bigint,
+  logIndex = 0,
+) {
+  const item = (coreAbi as Abi).find(
+    (entry): entry is AbiEvent => entry.type === 'event' && entry.name === eventName,
+  );
+  if (item === undefined) throw new Error(`no event ${eventName}`);
+  const indexed = Object.fromEntries(
+    item.inputs.filter((input) => input.indexed).map((input) => [input.name, args[input.name ?? '']]),
+  );
+  const plain = item.inputs.filter((input) => !input.indexed);
+  return rpcLog({
+    address: CORE,
+    topics: encodeEventTopics({ abi: [item], eventName, args: indexed } as never) as Hex[],
+    data: encodeAbiParameters(plain, plain.map((input) => args[input.name ?? ''])),
+    blockNumber,
+    logIndex,
+  });
+}
+
+const registered = (player: string, block: bigint, logIndex = 0) =>
+  coreLog('PlayerRegistered', { player }, block, logIndex);
+const recruitedAt = (player: string, province: number, block: bigint, logIndex = 0) =>
+  coreLog('TroopsRecruited', { player, province, requested: 10n, arrived: 10n }, block, logIndex);
+const moved = (player: string, from: number, to: number, block: bigint, logIndex = 0) =>
+  coreLog(
+    'TroopsMoved',
+    { player, fromProvince: from, toProvince: to, sent: 5n, arrived: 5n },
+    block,
+    logIndex,
+  );
+const attacked = (
+  attacker: string,
+  from: number,
+  to: number,
+  conquered: boolean,
+  block: bigint,
+  logIndex = 0,
+) =>
+  coreLog(
+    'AttackResolved',
+    {
+      attacker,
+      fromProvince: from,
+      toProvince: to,
+      troopsSent: 5n,
+      defendersKilled: 1n,
+      conquered,
+      morale: 1n,
+    },
+    block,
+    logIndex,
+  );
+const burned = (player: string, province: number, block: bigint, logIndex = 0) =>
+  coreLog('TroopsBurned', { player, province, troops: 1n, goldRefunded: 0n }, block, logIndex);
+const necromancy = (
+  nationId: number,
+  troopsRevived: bigint,
+  forfeited: boolean,
+  block: bigint,
+  logIndex = 0,
+) => coreLog('NecromancyResolved', { nationId, troopsRevived, forfeited }, block, logIndex);
+const resetTo = (roundId: bigint, block: bigint, logIndex = 0) =>
+  coreLog('RoundReset', { roundId }, block, logIndex);
+
+const caughtUp: IngestStatus = {
+  headBlock: 0n,
+  chainTip: 0n,
+  catchingUp: false,
+  lastError: null,
+  lastTickAt: 1,
+  backfillRequests: 0,
+};
+
+/** One request against a prepared store. The store stays open for the caller. */
+function request(
+  store: Store,
+  path: string,
+  status: IngestStatus = caughtUp,
+): Promise<{ status: number; headers: Record<string, string>; body: Record<string, unknown> }> {
+  const handler = createHttpHandler(config, store, { status: () => status } as unknown as Ingestor);
+  return new Promise((resolve) => {
+    const headers: Record<string, string> = {};
+    let statusCode = 0;
+    handler(
+      { method: 'GET', url: path, headers: { origin: 'https://play.example' } } as never,
+      {
+        writeHead(code: number, sent: Record<string, string>) {
+          statusCode = code;
+          Object.assign(headers, sent);
+        },
+        end(payload?: string) {
+          resolve({
+            status: statusCode,
+            headers,
+            body: payload === undefined ? {} : (JSON.parse(payload) as Record<string, unknown>),
+          });
+        },
+      } as never,
+    );
+  });
+}
+
+function commitAll(store: Store, logs: ReturnType<typeof coreLog>[], nextFrom: bigint): void {
+  store.commit(logs.map(stored), { nextFrom, confirmedHash: hash(Number(nextFrom) - 1) });
+}
+
+/** Fake lens: `getNations` at any block, nation `id` at index `id - 1`. Records every call. */
+function fakeLens(nations: { leader: string; capital: number }[]) {
+  const calls: { address: string; functionName: string; blockNumber: bigint }[] = [];
+  return {
+    calls,
+    readContract: async (args: { address: string; functionName: string; blockNumber: bigint }) => {
+      calls.push({
+        address: args.address,
+        functionName: args.functionName,
+        blockNumber: args.blockNumber,
+      });
+      return nations;
+    },
+  };
+}
+
+describe('troop presence extraction (port of the UI troopPresence.ts)', () => {
+  it('yields the same pairs the UI derives, lowercased', () => {
+    const store = openStore(':memory:', 100n);
+    commitAll(
+      store,
+      [
+        recruitedAt(ALICE, 1, 101n),
+        burned(ALICE, 9, 101n, 1),
+        moved(BOB, 2, 3, 102n),
+        // Both ends, conquering or not: a superset is harmless, a missing pair is not.
+        attacked(BOB, 3, 4, false, 103n),
+        attacked(LEADER, 5, 6, true, 103n, 1),
+      ],
+      104n,
+    );
+    expect(store.presence()).toEqual({
+      [ALICE]: [1, 9],
+      [BOB]: [2, 3, 4],
+      [LEADER.toLowerCase()]: [5, 6],
+    });
+    store.close();
+  });
+
+  it('skips malformed args and non-troop events instead of guessing', () => {
+    expect(troopPresencePairs('TroopsRecruited', { player: ALICE, province: 0 })).toEqual([]);
+    expect(troopPresencePairs('TroopsRecruited', { player: 'nope', province: 1 })).toEqual([]);
+    expect(troopPresencePairs('PlayerRegistered', { player: ALICE })).toEqual([]);
+  });
+});
+
+describe('/players (UD24)', () => {
+  it('keeps a player registered before the latest RoundReset', async () => {
+    const store = openStore(':memory:', 100n);
+    commitAll(store, [registered(ALICE, 101n), resetTo(2n, 105n), registered(BOB, 106n)], 107n);
+
+    const response = await request(store, '/players');
+    expect(response.status).toBe(200);
+    // The Registry is never reset (AGENTS rule 4); a round floor here was the original bug.
+    expect(response.body.players).toEqual([ALICE, BOB]);
+    expect(response.body.roundId).toBe('2');
+    store.close();
+  });
+
+  it('returns every registration past the 200-row meta ring', async () => {
+    const store = openStore(':memory:', 100n);
+    const count = FEED_BUFFER_LIMITS.meta + 50;
+    const expected: string[] = [];
+    const logs: ReturnType<typeof coreLog>[] = [];
+    for (let i = 1; i <= count; i++) {
+      const player = `0x${i.toString(16).padStart(40, '0')}`;
+      expected.push(player);
+      logs.push(registered(player, BigInt(100 + i)));
+    }
+    commitAll(store, logs, BigInt(101 + count));
+
+    // The feed ring still caps at 200 — that is the list the browser used to build from.
+    const snapshot = await request(store, '/snapshot');
+    expect(snapshot.body.logs).toHaveLength(FEED_BUFFER_LIMITS.meta);
+
+    const response = await request(store, '/players');
+    expect(response.body.players).toEqual(expected);
+    store.close();
+  });
+
+  it('carries the wire envelope: chainId, roundId, asOfBlock as strings, no-store, CORS', async () => {
+    const store = openStore(':memory:', 100n);
+    commitAll(store, [registered(ALICE, 101n)], 104n);
+
+    const response = await request(store, '/players');
+    expect(response.body).toEqual({
+      chainId: CHAIN,
+      // Round 1 is opened by SchizoCore's constructor; there is no RoundReset for it.
+      roundId: '1',
+      asOfBlock: '103',
+      players: [ALICE],
+    });
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.headers['access-control-allow-origin']).toBe('https://play.example');
+    store.close();
+  });
+});
+
+describe('/presence (UD24)', () => {
+  it('empties at a RoundReset and refills', async () => {
+    const store = openStore(':memory:', 100n);
+    commitAll(store, [recruitedAt(ALICE, 1, 101n), moved(ALICE, 1, 2, 102n)], 103n);
+    expect((await request(store, '/presence')).body.presence).toEqual({ [ALICE]: [1, 2] });
+
+    commitAll(store, [resetTo(2n, 105n)], 106n);
+    const emptied = await request(store, '/presence');
+    expect(emptied.body.presence).toEqual({});
+    expect(emptied.body.roundId).toBe('2');
+
+    commitAll(store, [recruitedAt(BOB, 7, 107n), recruitedAt(ALICE, 1, 108n)], 109n);
+    expect((await request(store, '/presence')).body.presence).toEqual({
+      [ALICE]: [1],
+      [BOB]: [7],
+    });
+    store.close();
+  });
+
+  it('splits a batch that straddles a RoundReset by log order', async () => {
+    const store = openStore(':memory:', 100n);
+    commitAll(
+      store,
+      [recruitedAt(ALICE, 1, 101n), resetTo(2n, 102n), recruitedAt(BOB, 2, 102n, 1)],
+      103n,
+    );
+    expect((await request(store, '/presence')).body.presence).toEqual({ [BOB]: [2] });
+    store.close();
+  });
+
+  it('answers 503 { catchingUp: true } instead of a partial body', async () => {
+    const store = openStore(':memory:', 100n);
+    commitAll(store, [recruitedAt(ALICE, 1, 101n), registered(ALICE, 101n, 1)], 102n);
+
+    for (const path of ['/players', '/presence']) {
+      const response = await request(store, path, { ...caughtUp, catchingUp: true });
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({ catchingUp: true });
+    }
+    store.close();
+  });
+});
+
+describe('index rewind (reorg)', () => {
+  it('drops pairs first seen in the rewound range and keeps older ones', () => {
+    const store = openStore(':memory:', 100n);
+    commitAll(store, [registered(ALICE, 101n), recruitedAt(ALICE, 1, 101n, 1)], 102n);
+    commitAll(
+      store,
+      [
+        registered(BOB, 106n),
+        recruitedAt(BOB, 2, 106n, 1),
+        // Seen again inside the rewound range, but first proven at 101: still true.
+        recruitedAt(ALICE, 1, 107n),
+      ],
+      108n,
+    );
+
+    store.rewind(105n, { nextFrom: 105n, confirmedHash: hash(104) });
+
+    expect(store.players()).toEqual([ALICE]);
+    expect(store.presence()).toEqual({ [ALICE]: [1] });
+    store.close();
+  });
+
+  it('restores the previous round when the RoundReset itself is rewound', () => {
+    const store = openStore(':memory:', 100n);
+    commitAll(store, [recruitedAt(ALICE, 1, 101n)], 102n);
+    commitAll(store, [resetTo(2n, 106n), recruitedAt(BOB, 2, 107n)], 108n);
+    expect(store.presence()).toEqual({ [BOB]: [2] });
+
+    store.rewind(105n, { nextFrom: 105n, confirmedHash: hash(104) });
+
+    expect(store.currentRound()).toEqual({ roundId: 1n, startBlock: 0 });
+    expect(store.presence()).toEqual({ [ALICE]: [1] });
+    store.close();
+  });
+});
+
+describe('necromancy pair (Q-U19)', () => {
+  const nations = [
+    { leader: '0x0000000000000000000000000000000000000001', capital: 10 },
+    { leader: '0x0000000000000000000000000000000000000002', capital: 20 },
+    { leader: LEADER, capital: 42 },
+  ];
+
+  it('adds (leader, capital) read from the lens at the log block', async () => {
+    const store = openStore(':memory:', 100n);
+    const lens = fakeLens(nations);
+    const chain = fakeChain([necromancy(3, 50n, false, 105n)], 110n);
+    const ingestor = createIngestor(
+      config,
+      store,
+      { ...chain.client, readContract: lens.readContract } as never,
+    );
+
+    await ingestor.tick();
+
+    expect(lens.calls).toEqual([
+      { address: LENS, functionName: 'getNations', blockNumber: 105n },
+    ]);
+    expect(store.presence()).toEqual({ [LEADER.toLowerCase()]: [42] });
+    store.close();
+  });
+
+  it('adds nothing, and reads nothing, for a forfeited or empty window', async () => {
+    const store = openStore(':memory:', 100n);
+    const lens = fakeLens(nations);
+    const chain = fakeChain(
+      [necromancy(3, 50n, true, 105n), necromancy(2, 0n, false, 106n), recruitedAt(ALICE, 1, 107n)],
+      110n,
+    );
+    const ingestor = createIngestor(
+      config,
+      store,
+      { ...chain.client, readContract: lens.readContract } as never,
+    );
+
+    await ingestor.tick();
+
+    // No eth_call except the necromancy read, and that only for a window that revived troops.
+    expect(lens.calls).toEqual([]);
+    expect(store.presence()).toEqual({ [ALICE]: [1] });
+    store.close();
+  });
+
+  it('refuses to commit the batch when the lens has no such nation', async () => {
+    const store = openStore(':memory:', 100n);
+    const lens = fakeLens(nations.slice(0, 2));
+    const chain = fakeChain([necromancy(3, 50n, false, 105n)], 110n);
+    const ingestor = createIngestor(
+      config,
+      store,
+      { ...chain.client, readContract: lens.readContract } as never,
+    );
+
+    await expect(ingestor.tick()).rejects.toThrow(/no nation 3/);
+    // Nothing committed: the cursor did not move, so the next tick retries the same range.
+    expect(store.getCursor().nextFrom).toBe(100n);
+    expect(store.eventCount()).toBe(0);
+    store.close();
+  });
+});
+
+describe('index backfill on boot', () => {
+  it('rebuilds players and presence from stored events, without a chain crawl', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'schizo-indexer-'));
+    const dbPath = join(dir, 'indexer.db');
+    try {
+      const before = openStore(dbPath, 100n);
+      commitAll(
+        before,
+        [
+          registered(ALICE, 101n),
+          recruitedAt(ALICE, 1, 101n, 1),
+          resetTo(2n, 103n),
+          registered(BOB, 104n),
+          moved(BOB, 2, 3, 104n, 1),
+        ],
+        105n,
+      );
+      // A necromancy credit's pair comes from the lens, so the commit carries it in.
+      before.commit([stored(necromancy(3, 5n, false, 106n))], {
+        nextFrom: 107n,
+        confirmedHash: hash(106),
+      });
+      before.close();
+
+      // Turn it into a database from before U22.1: events, no indexes.
+      const raw = new Database(dbPath);
+      raw.exec("DROP TABLE players; DROP TABLE presence; DELETE FROM meta WHERE key = 'indexes'");
+      raw.close();
+
+      const store = openStore(dbPath, 100n);
+      expect(store.indexesReady()).toBe(false);
+      expect((await request(store, '/players')).status).toBe(503);
+
+      const lens = fakeLens([
+        { leader: ALICE, capital: 1 },
+        { leader: ALICE, capital: 1 },
+        { leader: LEADER, capital: 42 },
+      ]);
+      const chain = fakeChain([], 106n);
+      let getLogsCalls = 0;
+      const ingestor = createIngestor(config, store, {
+        ...chain.client,
+        getLogs: async () => {
+          getLogsCalls += 1;
+          return [];
+        },
+        readContract: lens.readContract,
+      } as never);
+
+      await ingestor.ensureIndexes();
+
+      expect(getLogsCalls).toBe(0);
+      expect(lens.calls).toEqual([
+        { address: LENS, functionName: 'getNations', blockNumber: 106n },
+      ]);
+      expect(store.indexesReady()).toBe(true);
+      expect(store.players()).toEqual([ALICE, BOB]);
+      expect(store.presence()).toEqual({ [BOB]: [2, 3], [LEADER.toLowerCase()]: [42] });
+
+      // Built once: the next boot does not read the lens again.
+      await ingestor.ensureIndexes();
+      expect(lens.calls).toHaveLength(1);
+      store.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('treats a fresh database as already built', () => {
+    const store = openStore(':memory:', 100n);
+    expect(store.indexesReady()).toBe(true);
+    store.close();
   });
 });

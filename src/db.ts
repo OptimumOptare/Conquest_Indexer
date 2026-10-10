@@ -1,15 +1,38 @@
 /**
- * SQLite store. One append-only `events` table plus a cursor and a short reorg log.
+ * SQLite store. One append-only `events` table plus a cursor and a short reorg log, and two
+ * small UD24 indexes folded from it (`players`, `presence`).
  *
  * Sizing: a round is tens of thousands of logs — megabytes. SQLite on a Railway volume is the
  * right tool; Postgres would only buy multi-instance writes, which this service does not want
  * (one ingest loop, one cursor).
+ *
+ * The indexes are written in the same transaction as the events they come from, and every row
+ * keeps the block of the log that first proved it (`first_block`). That makes a reorg rewind a
+ * plain `first_block >= n` delete: a row whose first proof survives the rewind is still true.
  */
 
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { FEED_BUFFER_LIMITS, type FeedCategory } from './catalog.js';
+import {
+  INDEX_EVENT_NAMES,
+  indexFacts,
+  logKey,
+  necromancyRequest,
+  type IndexableLog,
+  type NecromancyCredits,
+  type NecromancyRequest,
+} from './indexes.js';
+
+/**
+ * `SchizoCore`'s constructor opens round 1, and every later round is announced by a `RoundReset`
+ * carrying its id. Before the first reset the round id is therefore this, not a game parameter.
+ */
+const FIRST_ROUND_ID = 1n;
+
+/** Bump to force a rebuild of `players` / `presence` from `events` on the next boot. */
+const INDEXES_VERSION = '1';
 
 export type StoredLog = {
   readonly address: string;
@@ -109,6 +132,27 @@ export function openStore(dbPath: string, startBlock: bigint) {
       block_num INTEGER PRIMARY KEY,
       seen_at   INTEGER NOT NULL
     );
+
+    -- Every address with a PlayerRegistered log, across all rounds. The Registry is never
+    -- reset, so neither is this.
+    CREATE TABLE IF NOT EXISTS players (
+      player      TEXT    PRIMARY KEY,
+      first_block INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS players_by_first_block
+      ON players (first_block);
+
+    -- Every (player, province) pair, per round. round_start is the block of the RoundReset that
+    -- opened the round (0 for round 1), the same floor /snapshot uses.
+    CREATE TABLE IF NOT EXISTS presence (
+      round_start INTEGER NOT NULL,
+      player      TEXT    NOT NULL,
+      province    INTEGER NOT NULL,
+      first_block INTEGER NOT NULL,
+      PRIMARY KEY (round_start, player, province)
+    );
+    CREATE INDEX IF NOT EXISTS presence_by_first_block
+      ON presence (first_block);
   `);
 
   const getMeta = db.prepare<[string], { value: string }>(
@@ -127,8 +171,50 @@ export function openStore(dbPath: string, startBlock: bigint) {
      ON CONFLICT(block_num, log_index) DO NOTHING`,
   );
 
+  // ON CONFLICT DO NOTHING keeps the earliest first_block, which is what a rewind keys on.
+  const insertPlayer = db.prepare(
+    `INSERT INTO players (player, first_block) VALUES (?, ?)
+     ON CONFLICT(player) DO NOTHING`,
+  );
+  const insertPresence = db.prepare(
+    `INSERT INTO presence (round_start, player, province, first_block) VALUES (?, ?, ?, ?)
+     ON CONFLICT(round_start, player, province) DO NOTHING`,
+  );
+
+  const latestRoundReset = db.prepare<[], { block_num: number }>(
+    "SELECT MAX(block_num) AS block_num FROM events WHERE event_name = 'RoundReset'",
+  );
+
+  /**
+   * Fold logs, in chain order, into `players` / `presence`. `roundStart` is the round the first
+   * log belongs to; a `RoundReset` moves every later log into the new round. Returns the round
+   * the fold ended in.
+   */
+  function foldIndexes(
+    logs: Iterable<IndexableLog>,
+    roundStart: number,
+    necromancy: NecromancyCredits,
+  ): number {
+    let round = roundStart;
+    for (const log of logs) {
+      const block = Number(log.blockNumber);
+      const facts = indexFacts(log);
+      if (facts.roundReset) round = block;
+      if (facts.registered !== null) insertPlayer.run(facts.registered, block);
+      for (const found of facts.pairs) {
+        insertPresence.run(round, found.player, found.province, block);
+      }
+      const credit = necromancy.get(logKey(log.blockNumber, log.logIndex));
+      if (credit !== undefined) {
+        insertPresence.run(round, credit.player, credit.province, block);
+      }
+    }
+    return round;
+  }
+
   const insertMany = db.transaction(
-    (logs: readonly StoredLog[], cursor: Cursor) => {
+    (logs: readonly StoredLog[], cursor: Cursor, necromancy: NecromancyCredits) => {
+      foldIndexes(logs, latestRoundReset.get()?.block_num ?? 0, necromancy);
       for (const log of logs) {
         insertEvent.run(
           log.blockNumber.toString(),
@@ -149,6 +235,8 @@ export function openStore(dbPath: string, startBlock: bigint) {
   );
 
   const deleteFrom = db.prepare('DELETE FROM events WHERE block_num >= ?');
+  const deletePlayersFrom = db.prepare('DELETE FROM players WHERE first_block >= ?');
+  const deletePresenceFrom = db.prepare('DELETE FROM presence WHERE first_block >= ?');
   const insertReorg = db.prepare(
     'INSERT INTO reorgs (block_num, seen_at) VALUES (?, ?) ' +
       'ON CONFLICT(block_num) DO UPDATE SET seen_at = excluded.seen_at',
@@ -157,15 +245,13 @@ export function openStore(dbPath: string, startBlock: bigint) {
 
   const rewindTx = db.transaction((fromBlock: bigint, cursor: Cursor) => {
     deleteFrom.run(Number(fromBlock));
+    deletePlayersFrom.run(Number(fromBlock));
+    deletePresenceFrom.run(Number(fromBlock));
     insertReorg.run(Number(fromBlock), Date.now());
     pruneReorgs.run(Number(fromBlock) - 10_000);
     setMeta.run('next_from', cursor.nextFrom.toString());
     setMeta.run('confirmed_hash', cursor.confirmedHash ?? '');
   });
-
-  const latestRoundReset = db.prepare<[], { block_num: number }>(
-    "SELECT MAX(block_num) AS block_num FROM events WHERE event_name = 'RoundReset'",
-  );
 
   const categoryPage = db.prepare<[string, number, number], EventRow>(
     `SELECT ${EVENT_COLUMNS}
@@ -191,6 +277,68 @@ export function openStore(dbPath: string, startBlock: bigint) {
     'SELECT COUNT(*) AS n FROM events',
   );
 
+  type IndexRow = Pick<EventRow, 'topics' | 'data' | 'event_name' | 'block_num' | 'log_index'>;
+  const toIndexable = (row: IndexRow): IndexableLog => ({
+    eventName: row.event_name,
+    topics: JSON.parse(row.topics) as string[],
+    data: row.data,
+    blockNumber: BigInt(row.block_num),
+    logIndex: row.log_index,
+  });
+
+  const indexEventRows = db.prepare<string[], IndexRow>(
+    `SELECT topics, data, event_name, block_num, log_index
+       FROM events
+      WHERE event_name IN (${INDEX_EVENT_NAMES.map(() => '?').join(', ')})
+      ORDER BY block_num ASC, log_index ASC`,
+  );
+
+  const necromancyRows = db.prepare<[], IndexRow>(
+    `SELECT topics, data, event_name, block_num, log_index
+       FROM events
+      WHERE event_name = 'NecromancyResolved'
+      ORDER BY block_num ASC, log_index ASC`,
+  );
+
+  const latestRoundResetRow = db.prepare<[], { block_num: number; topics: string }>(
+    `SELECT block_num, topics
+       FROM events
+      WHERE event_name = 'RoundReset'
+      ORDER BY block_num DESC, log_index DESC
+      LIMIT 1`,
+  );
+
+  const allPlayers = db.prepare<[], { player: string }>(
+    'SELECT player FROM players ORDER BY player ASC',
+  );
+
+  const roundPresence = db.prepare<[number], { player: string; province: number }>(
+    `SELECT player, province
+       FROM presence
+      WHERE round_start = ?
+      ORDER BY player ASC, province ASC`,
+  );
+
+  const clearPlayers = db.prepare('DELETE FROM players');
+  const clearPresence = db.prepare('DELETE FROM presence');
+
+  const rebuildTx = db.transaction((necromancy: NecromancyCredits) => {
+    clearPlayers.run();
+    clearPresence.run();
+    foldIndexes(
+      indexEventRows.all(...INDEX_EVENT_NAMES).map(toIndexable),
+      0,
+      necromancy,
+    );
+    setMeta.run('indexes', INDEXES_VERSION);
+  });
+
+  // An empty events table has nothing to fold, so its (empty) indexes are already current.
+  // A table that predates the indexes is rebuilt on boot instead (`rebuildIndexes`).
+  if (getMeta.get('indexes') === undefined && (countAll.get()?.n ?? 0) === 0) {
+    setMeta.run('indexes', INDEXES_VERSION);
+  }
+
   return {
     close(): void {
       db.close();
@@ -205,9 +353,17 @@ export function openStore(dbPath: string, startBlock: bigint) {
       };
     },
 
-    /** Append a decoded batch and advance the cursor atomically. */
-    commit(logs: readonly StoredLog[], cursor: Cursor): void {
-      insertMany(logs, cursor);
+    /**
+     * Append a decoded batch, fold it into the indexes, and advance the cursor, atomically.
+     * `necromancy` carries the (leader, capital) the ingest loop read for each crediting
+     * `NecromancyResolved` in the batch.
+     */
+    commit(
+      logs: readonly StoredLog[],
+      cursor: Cursor,
+      necromancy: NecromancyCredits = new Map(),
+    ): void {
+      insertMany(logs, cursor, necromancy);
     },
 
     /** Drop everything at or above `fromBlock` and record the reorg for clients. */
@@ -278,6 +434,55 @@ export function openStore(dbPath: string, startBlock: bigint) {
 
     eventCount(): number {
       return countAll.get()?.n ?? 0;
+    },
+
+    /** False until `players` / `presence` have been folded from every stored event. */
+    indexesReady(): boolean {
+      return getMeta.get('indexes')?.value === INDEXES_VERSION;
+    },
+
+    /** Crediting `NecromancyResolved` logs already stored, for `rebuildIndexes`. */
+    necromancyRequests(): NecromancyRequest[] {
+      const out: NecromancyRequest[] = [];
+      for (const row of necromancyRows.all()) {
+        const request = necromancyRequest(toIndexable(row));
+        if (request !== null) out.push(request);
+      }
+      return out;
+    },
+
+    /**
+     * Re-derive both indexes from `events` (boot backfill — never a chain crawl). Runs when the
+     * table predates the indexes; `necromancy` must cover every `necromancyRequests()` entry.
+     */
+    rebuildIndexes(necromancy: NecromancyCredits): void {
+      rebuildTx(necromancy);
+    },
+
+    /** The round `/presence` serves: its id and the block of the `RoundReset` that opened it. */
+    currentRound(): { roundId: bigint; startBlock: number } {
+      const row = latestRoundResetRow.get();
+      if (row === undefined) return { roundId: FIRST_ROUND_ID, startBlock: 0 };
+      const topics = JSON.parse(row.topics) as string[];
+      const roundTopic = topics[1];
+      if (roundTopic === undefined) {
+        throw new Error(`RoundReset at block ${row.block_num} has no roundId topic`);
+      }
+      return { roundId: BigInt(roundTopic), startBlock: row.block_num };
+    },
+
+    /** `/players`: every registered address, all rounds, ascending. */
+    players(): string[] {
+      return allPlayers.all().map((row) => row.player);
+    },
+
+    /** `/presence`: player → provinces for the current round, both ascending. */
+    presence(): Record<string, number[]> {
+      const out: Record<string, number[]> = {};
+      for (const row of roundPresence.all(this.currentRound().startBlock)) {
+        (out[row.player] ??= []).push(row.province);
+      }
+      return out;
     },
   };
 }

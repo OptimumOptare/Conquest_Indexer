@@ -1,6 +1,6 @@
 # schizo-indexer
 
-History indexer for **Schizo Conquest** (ticket U12.4, decisions UD21/UD22).
+History indexer for **Schizo Conquest** (tickets U12.4, U22.x; decisions UD21/UD22/UD24).
 
 It ingests the §16 event catalog from `SchizoCore` once, server-side, and serves it
 over HTTP so browsers never crawl the chain for history:
@@ -10,6 +10,13 @@ over HTTP so browsers never crawl the chain for history:
 | `GET /snapshot` | Current feed history (per-category rings, current round only) + `asOfBlock` |
 | `GET /events?since=<block>` | Deltas above `<block>`, polled on the client's ~2 s cadence |
 | `GET /health` | `headBlock`, `chainTip`, `lagBlocks`, `catchingUp`, `lastError` |
+| `GET /players` | Every address with a `PlayerRegistered` log, **all rounds**, ascending (U22.1) |
+| `GET /presence` | Every (player, province) pair of the current round, `{ [player]: number[] }` (U22.1) |
+
+The two index routes (UD24) share one wire contract: JSON, bigints as decimal strings, addresses
+lowercased, and every body carries `chainId`, `roundId` and `asOfBlock`. Until ingest has reached
+the tip and the indexes are built they answer **503 `{ catchingUp: true }`**, never a partial
+body that looks complete. `/snapshot` and `/events` are unchanged by them.
 
 ## The boundary this service sits on
 
@@ -27,6 +34,16 @@ Two properties keep that honest:
   invent an event field or synthesize a feed entry — only withhold or replay real logs.
 - **No game numbers.** Costs, rates and cooldowns are read by the client from the on-chain param
   registry. Nothing here knows or serves a game parameter.
+
+The index routes (UD24) serve no numbers either, only *who to ask about*. `/players` and
+`/presence` are folds over this service's own `events` table, with the client still reading
+every value on chain. `/presence` uses the same rules as the UI's `chain/troopPresence.ts`. The
+pairs are a **superset** of the real garrisons, so a stale pair reads 0 and is harmless. The one
+pair no troop event proves is the necromancy credit (Q-U19): for a `NecromancyResolved` that
+revived troops, the service reads `SchizoLens.getNations` **at that log's block** and adds
+(leader, capital). That is its only `eth_call`. Both tables are written in the same transaction
+as the events, rewound with them on a reorg, and rebuilt from `events` on boot if they predate
+the data. That rebuild never re-crawls the chain.
 
 ## Run it locally
 
@@ -101,7 +118,10 @@ endpoint, this service backfills from the deploy block to the chain tip (`lagBlo
 events) in seconds, then tails on the public endpoint alone.
 
 HyperRPC does **not** implement `eth_call` (`-32601`), which is why the game frontend cannot
-switch to it wholesale — every lens read is an `eth_call`. That constraint does not apply here.
+switch to it wholesale — every lens read is an `eth_call`. Here only `RPC_HTTP` needs it, for the
+necromancy lens read (one call per block that resolved a window). That read is historical, at the
+log's block. The public Monad endpoint serves historical state back to the `SchizoCore` deploy
+block (checked 2026-10-10), so a cold start can resolve old windows too.
 
 Steady state: Monad testnet produces ~3.35 blocks/s (measured), ~289k blocks/day. At
 `POLL_INTERVAL_MS=1000` this service issues ~86k `eth_getLogs` + `eth_blockNumber` pairs a day,
@@ -128,8 +148,9 @@ volume — otherwise this serves a dead stack's history.
 ```
 src/config.ts   env → typed config; M23 address book defaults (SchizoCore + SchizoLens)
 src/catalog.ts  §16 categories + UD11 ring limits (copy of the UI's, checked by sync:abis)
-src/db.ts       SQLite: events, cursor, reorg log; snapshot/delta queries
-src/ingest.ts   eth_getLogs loop, ≤1,000-block ranges, parent-hash reorg rewind
+src/db.ts       SQLite: events, cursor, reorg log, players/presence; snapshot/delta/index queries
+src/indexes.ts  UD24 index facts per log: registrations, presence pairs (troopPresence.ts port)
+src/ingest.ts   eth_getLogs loop, parent-hash reorg rewind, necromancy lens read, index backfill
 src/server.ts   node:http routes + CORS allowlist
 src/main.ts     wiring + graceful shutdown
 ```

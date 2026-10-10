@@ -1,13 +1,19 @@
 /**
- * HTTP surface (UD21): `GET /snapshot`, `GET /events?since=<block>`, `GET /health`.
+ * HTTP surface (UD21): `GET /snapshot`, `GET /events?since=<block>`, `GET /health`, plus the
+ * UD24 indexes `GET /players` and `GET /presence`.
  *
  * Read-only, no auth, no per-client state — a plain cacheable JSON API that a CDN can sit in
  * front of later. CORS is an explicit origin allowlist (UD22): this service is on its own
  * origin and answers only the site.
  *
- * Responses carry raw logs, never decoded events. The client decodes them with the same ABIs
+ * Feed responses carry raw logs, never decoded events. The client decodes them with the same ABIs
  * it uses for its own RPC fallback, so this service cannot invent an event field or synthesize
  * a feed entry (AGENTS rule 12) — only withhold or replay real ones.
+ *
+ * The index routes say only *who to ask about*: addresses and (player, province) pairs. The
+ * client still reads every number from the chain, so a wrong entry costs one read that returns 0.
+ * What they must never do is look complete when they are not, so until ingest has reached the
+ * tip and the indexes are built they answer 503 `{ catchingUp: true }` (UD24).
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -58,6 +64,9 @@ function parseSince(value: string | null): bigint | null {
     return null;
   }
 }
+
+/** Body for an index route that cannot vouch for a complete answer yet. */
+const CATCHING_UP = { catchingUp: true } as const;
 
 export function createHttpHandler(
   config: Config,
@@ -141,6 +150,28 @@ export function createHttpHandler(
               ...(reorgFrom !== null ? { reorgFrom: reorgFrom.toString() } : {}),
               logs: page.logs,
             },
+            headers,
+          );
+          return;
+        }
+
+        case '/players':
+        case '/presence': {
+          if (ingestor.status().catchingUp || !store.indexesReady()) {
+            send(res, 503, CATCHING_UP, headers);
+            return;
+          }
+          const envelope = {
+            chainId: config.chainId,
+            roundId: store.currentRound().roundId.toString(),
+            asOfBlock: store.headBlock().toString(),
+          };
+          send(
+            res,
+            200,
+            url.pathname === '/players'
+              ? { ...envelope, players: store.players() }
+              : { ...envelope, presence: store.presence() },
             headers,
           );
           return;
