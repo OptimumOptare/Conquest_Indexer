@@ -3,7 +3,7 @@
  * which has none on purpose: an indexer pointed at the wrong chain is worse than one that
  * refuses to boot.
  *
- * The contract addresses default to the T58 Monad-testnet deployment recorded in the UI's
+ * The contract addresses default to the M23 Monad-testnet deployment recorded in the UI's
  * address book (`ui/src/chain/addresses.ts` §00.6). They are deployment configuration, not
  * game parameters — no game number is ever hardcoded here or served from here.
  */
@@ -30,35 +30,24 @@ function loadDotEnv(path = '.env'): void {
   }
 }
 
-export type ContractName =
-  | 'adminController'
-  | 'playerRegistry'
-  | 'economy'
-  | 'combat'
-  | 'techWeapons'
-  | 'diplomacy';
+/**
+ * M21 / D32 — the six game contracts merged into one `SchizoCore`, which emits the whole §16
+ * catalogue (M19a), so it is the only address this service ingests logs from. `lens` is
+ * `SchizoLens`: read-only code, never a log source, called only where a route needs a value the
+ * logs do not carry.
+ */
+export type ContractName = 'core' | 'lens';
 
-export const CONTRACT_NAMES: readonly ContractName[] = [
-  'adminController',
-  'playerRegistry',
-  'economy',
-  'combat',
-  'techWeapons',
-  'diplomacy',
-];
+export const CONTRACT_NAMES: readonly ContractName[] = ['core', 'lens'];
 
-/** T58 redeploy (alpha stack), Monad testnet (10143). Mirrors the UI address book. */
+/** M23 monolith stack (alpha), Monad testnet (10143). Mirrors the UI address book. */
 const MONAD_TESTNET_CONTRACTS: Record<ContractName, string> = {
-  adminController: '0x3Ae03045432dE5f66aaB9f1B58294E5879C1Be64',
-  playerRegistry: '0xa1B7627463DeD57b7E517Fb4E08023524FB5FD95',
-  economy: '0x4f701cB159021E5B2d9554947118119c681717c9',
-  combat: '0xEf1b990C6cB2E653b089688562A36585ee33d8e5',
-  techWeapons: '0xb664AEB222a4ACAe5511301AFAb38C5Ee5cA39B4',
-  diplomacy: '0xC6546e2ad878775a41aE2Ea12711CCEc18d25249',
+  core: '0x37e46aB1b63CDCBc18a7C738Cc43e0c146C6873f',
+  lens: '0x63449a654091e81c93DA574e29ddcFCc4E6FF65E',
 };
 
-/** AdminController creation block — the deploy anchor the browser must never crawl from. */
-const MONAD_TESTNET_START_BLOCK = 59_761_881;
+/** SchizoCore creation block — the deploy anchor the browser must never crawl from. */
+const MONAD_TESTNET_START_BLOCK = 63_589_123;
 
 export type Config = {
   readonly chainId: number;

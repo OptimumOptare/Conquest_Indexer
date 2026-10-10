@@ -20,14 +20,11 @@ const repoRoot = resolve(here, '..');
 const gameRepo = resolve(process.env.GAME_REPO ?? join(repoRoot, '..', 'Conquestv2'));
 const checkOnly = process.argv.includes('--check');
 
-const ABI_FILES = [
-  'AdminController.json',
-  'PlayerRegistry.json',
-  'Economy.json',
-  'Combat.json',
-  'TechWeapons.json',
-  'Diplomacy.json',
-];
+/**
+ * M21 / D32: the six game contracts merged into `SchizoCore`, which emits the whole §16 catalogue
+ * (M19a). `SchizoLens` is read-only code the indexer calls (`eth_call`), never a log source.
+ */
+const ABI_FILES = ['SchizoCore.json', 'SchizoLens.json'];
 
 const problems = [];
 

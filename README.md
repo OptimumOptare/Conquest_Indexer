@@ -2,7 +2,7 @@
 
 History indexer for **Schizo Conquest** (ticket U12.4, decisions UD21/UD22).
 
-It ingests the §16 event catalog from the six game contracts once, server-side, and serves it
+It ingests the §16 event catalog from `SchizoCore` once, server-side, and serves it
 over HTTP so browsers never crawl the chain for history:
 
 | Route | Purpose |
@@ -36,7 +36,7 @@ npm install
 npm run dev
 ```
 
-On HyperRPC the default `START_BLOCK` (the AdminController deploy block) backfills the whole
+On HyperRPC the default `START_BLOCK` (the `SchizoCore` deploy block) backfills the whole
 chain in seconds, so leave it alone. On a range-capped RPC, set it near the tip for a quick
 local run. Point the frontend at it by editing
 `ui/public/config.json` in the game repo:
@@ -120,13 +120,13 @@ GAME_REPO=/path/to/Conquestv2 npm run sync:abis:check  # fail instead of writing
 ```
 
 Run it after any redeploy or data-model change. **After a redeploy also update `START_BLOCK` and
-the contract addresses** (`ADDR_*` env vars, or the defaults in `src/config.ts`) and wipe the
+the contract addresses** (`ADDR_CORE` / `ADDR_LENS`, or the defaults in `src/config.ts`) and wipe the
 volume — otherwise this serves a dead stack's history.
 
 ## Layout
 
 ```
-src/config.ts   env → typed config; T58 address book defaults
+src/config.ts   env → typed config; M23 address book defaults (SchizoCore + SchizoLens)
 src/catalog.ts  §16 categories + UD11 ring limits (copy of the UI's, checked by sync:abis)
 src/db.ts       SQLite: events, cursor, reorg log; snapshot/delta queries
 src/ingest.ts   eth_getLogs loop, ≤1,000-block ranges, parent-hash reorg rewind

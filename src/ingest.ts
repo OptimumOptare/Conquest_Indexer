@@ -1,5 +1,5 @@
 /**
- * Ingest loop — `eth_getLogs` over the six game contracts, reorg-tolerant, cursor in SQLite.
+ * Ingest loop — `eth_getLogs` over `SchizoCore`, reorg-tolerant, cursor in SQLite.
  *
  * This is the crawl the browser must never do (UD21 / arch §5: no client-side backfill is ever
  * O(chain history)). Doing it once, here, is the entire point of the service.
@@ -18,24 +18,13 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
-import adminControllerAbi from './abis/AdminController.json' with { type: 'json' };
-import combatAbi from './abis/Combat.json' with { type: 'json' };
-import diplomacyAbi from './abis/Diplomacy.json' with { type: 'json' };
-import economyAbi from './abis/Economy.json' with { type: 'json' };
-import playerRegistryAbi from './abis/PlayerRegistry.json' with { type: 'json' };
-import techWeaponsAbi from './abis/TechWeapons.json' with { type: 'json' };
+import schizoCoreAbi from './abis/SchizoCore.json' with { type: 'json' };
 import { categorizeEvent } from './catalog.js';
-import { CONTRACT_NAMES, type Config, type ContractName } from './config.js';
+import type { Config } from './config.js';
 import type { Cursor, Store, StoredLog } from './db.js';
 
-const ABIS: Record<ContractName, Abi> = {
-  adminController: adminControllerAbi as Abi,
-  playerRegistry: playerRegistryAbi as Abi,
-  economy: economyAbi as Abi,
-  combat: combatAbi as Abi,
-  techWeapons: techWeaponsAbi as Abi,
-  diplomacy: diplomacyAbi as Abi,
-};
+/** One ABI for the whole §16 catalogue: `SchizoCore` emits every event (M19a). */
+const CORE_ABI = schizoCoreAbi as Abi;
 
 export type IngestStatus = {
   headBlock: bigint;
@@ -68,7 +57,7 @@ export function createBackfillClient(config: Config): PublicClient | null {
   });
 }
 
-/** Log → storable row. Unknown address / uncataloged event / undecodable ⇒ null (dropped). */
+/** Log → storable row. Not `SchizoCore` / uncataloged event / undecodable ⇒ null (dropped). */
 export function toStoredLog(
   log: {
     address: string;
@@ -79,7 +68,7 @@ export function toStoredLog(
     transactionHash: Hex | null;
     logIndex: number | null;
   },
-  contractsByAddress: ReadonlyMap<string, ContractName>,
+  coreAddress: string,
 ): StoredLog | null {
   if (
     log.blockNumber === null ||
@@ -91,13 +80,12 @@ export function toStoredLog(
     return null;
   }
 
-  const contract = contractsByAddress.get(log.address.toLowerCase());
-  if (contract === undefined) return null;
+  if (log.address.toLowerCase() !== coreAddress.toLowerCase()) return null;
 
   let eventName: string;
   try {
     const decoded = decodeEventLog({
-      abi: ABIS[contract],
+      abi: CORE_ABI,
       data: log.data,
       topics: log.topics as [Hex, ...Hex[]],
       strict: false,
@@ -152,12 +140,7 @@ export function createIngestor(
   client: Pick<PublicClient, 'getBlockNumber' | 'getBlock' | 'getLogs'>,
   backfillClient: Pick<PublicClient, 'getLogs'> | null = null,
 ): Ingestor {
-  const addresses = CONTRACT_NAMES.map(
-    (name) => config.contracts[name] as Address,
-  );
-  const contractsByAddress = new Map<string, ContractName>(
-    CONTRACT_NAMES.map((name) => [config.contracts[name].toLowerCase(), name]),
-  );
+  const coreAddress = config.contracts.core as Address;
   const rangeMax = BigInt(config.logRangeMaxBlocks);
 
   const backfillRangeMax = BigInt(config.backfillLogRangeMaxBlocks);
@@ -192,7 +175,7 @@ export function createIngestor(
       const batches = await Promise.all(
         slice.map((chunk) =>
           source.getLogs({
-            address: addresses,
+            address: coreAddress,
             fromBlock: chunk.from,
             toBlock: chunk.to,
           }),
@@ -200,7 +183,7 @@ export function createIngestor(
       );
       for (const batch of batches) {
         for (const log of batch) {
-          const stored = toStoredLog(log, contractsByAddress);
+          const stored = toStoredLog(log, coreAddress);
           if (stored !== null) out.push(stored);
         }
       }

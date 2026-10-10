@@ -5,10 +5,9 @@ import {
   type Abi,
   type Hex,
 } from 'viem';
-import combatAbi from '../src/abis/Combat.json' with { type: 'json' };
-import adminControllerAbi from '../src/abis/AdminController.json' with { type: 'json' };
+import coreAbi from '../src/abis/SchizoCore.json' with { type: 'json' };
 import { categorizeEvent, FEED_BUFFER_LIMITS } from '../src/catalog.js';
-import { CONTRACT_NAMES, type Config } from '../src/config.js';
+import type { Config } from '../src/config.js';
 import { openStore, type StoredLog } from '../src/db.js';
 import { createHttpHandler } from '../src/server.js';
 import { createIngestor, toStoredLog } from '../src/ingest.js';
@@ -16,20 +15,13 @@ import type { IngestStatus, Ingestor } from '../src/ingest.js';
 
 const CHAIN = 10_143;
 const PLAYER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' as const;
-const COMBAT = '0xEf1b990C6cB2E653b089688562A36585ee33d8e5' as const;
-const ADMIN = '0x3Ae03045432dE5f66aaB9f1B58294E5879C1Be64' as const;
+const CORE = '0x37e46aB1b63CDCBc18a7C738Cc43e0c146C6873f' as const;
+const LENS = '0x63449a654091e81c93DA574e29ddcFCc4E6FF65E' as const;
 
 const config: Config = {
   chainId: CHAIN,
   rpcHttp: 'http://rpc.invalid',
-  contracts: {
-    adminController: ADMIN,
-    playerRegistry: '0xa1B7627463DeD57b7E517Fb4E08023524FB5FD95',
-    economy: '0x4f701cB159021E5B2d9554947118119c681717c9',
-    combat: COMBAT,
-    techWeapons: '0xb664AEB222a4ACAe5511301AFAb38C5Ee5cA39B4',
-    diplomacy: '0xC6546e2ad878775a41aE2Ea12711CCEc18d25249',
-  },
+  contracts: { core: CORE, lens: LENS },
   startBlock: 100n,
   port: 0,
   dbPath: ':memory:',
@@ -66,15 +58,15 @@ function rpcLog(args: {
 
 function recruited(blockNumber: bigint, logIndex: number) {
   return rpcLog({
-    address: COMBAT,
+    address: CORE,
     topics: encodeEventTopics({
-      abi: combatAbi as Abi,
+      abi: coreAbi as Abi,
       eventName: 'TroopsRecruited',
       args: { player: PLAYER, province: 1 },
     }) as Hex[],
     data: encodeAbiParameters(
-      [{ type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }],
-      [100n, 90n, 10n],
+      [{ type: 'uint256' }, { type: 'uint256' }],
+      [100n, 90n],
     ),
     blockNumber,
     logIndex,
@@ -83,9 +75,9 @@ function recruited(blockNumber: bigint, logIndex: number) {
 
 function roundReset(blockNumber: bigint, logIndex: number) {
   return rpcLog({
-    address: ADMIN,
+    address: CORE,
     topics: encodeEventTopics({
-      abi: adminControllerAbi as Abi,
+      abi: coreAbi as Abi,
       eventName: 'RoundReset',
       args: { roundId: 2n },
     }) as Hex[],
@@ -95,12 +87,8 @@ function roundReset(blockNumber: bigint, logIndex: number) {
   });
 }
 
-const byAddress = new Map(
-  CONTRACT_NAMES.map((name) => [config.contracts[name].toLowerCase(), name]),
-);
-
 function stored(log: ReturnType<typeof recruited>): StoredLog {
-  const result = toStoredLog(log, byAddress);
+  const result = toStoredLog(log, CORE);
   if (result === null) throw new Error('expected a cataloged log');
   return result;
 }
@@ -145,22 +133,29 @@ describe('§16 catalog', () => {
 
 describe('log decoding', () => {
   it('keeps a cataloged log from a known contract', () => {
-    const result = toStoredLog(recruited(101n, 0), byAddress);
+    const result = toStoredLog(recruited(101n, 0), CORE);
     expect(result?.eventName).toBe('TroopsRecruited');
     expect(result?.category).toBe('activity');
   });
 
-  it('drops a log from an address outside the address book', () => {
+  it('drops a log from any address other than SchizoCore', () => {
     const foreign = {
       ...recruited(101n, 0),
       address: '0x00000000000000000000000000000000deadbeef',
     };
-    expect(toStoredLog(foreign, byAddress)).toBeNull();
+    expect(toStoredLog(foreign, CORE)).toBeNull();
+    // The lens is read-only code: a log claiming to come from it is not a game event.
+    expect(toStoredLog({ ...recruited(101n, 0), address: LENS }, CORE)).toBeNull();
+  });
+
+  it('matches the core address case-insensitively', () => {
+    const lowered = { ...recruited(101n, 0), address: CORE.toLowerCase() };
+    expect(toStoredLog(lowered, CORE)?.eventName).toBe('TroopsRecruited');
   });
 
   it('drops an undecodable log', () => {
     const garbled = { ...recruited(101n, 0), topics: [hash(7)] as Hex[] };
-    expect(toStoredLog(garbled, byAddress)).toBeNull();
+    expect(toStoredLog(garbled, CORE)).toBeNull();
   });
 });
 

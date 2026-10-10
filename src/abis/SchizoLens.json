@@ -1,0 +1,447 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "core_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "core",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract SchizoCore"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "faucetView",
+    "inputs": [
+      {
+        "name": "player",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ISchizoLens.FaucetView",
+        "components": [
+          {
+            "name": "lastClaim",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "streak",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "level",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "nextPayout",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "faucetCollection",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "holdsCollectionNft",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "cooldown",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "claimableAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "eligible",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "gate",
+            "type": "uint8",
+            "internalType": "enum ISchizoLens.FaucetGate"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getGameState",
+    "inputs": [
+      {
+        "name": "paramKeys",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ISchizoLens.GameState",
+        "components": [
+          {
+            "name": "phase",
+            "type": "uint8",
+            "internalType": "enum SchizoTypes.Phase"
+          },
+          {
+            "name": "bootstrapStart",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "gameStart",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "gameEnd",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "winnerNation",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "endedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "roundId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "dataLoadComplete",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "stateVersion",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "currentJackpot",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "nextRoundJackpot",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "provinceCountTotal",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "nationCountTotal",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "eliminatedCount",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "paramValues",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getNations",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "nations",
+        "type": "tuple[]",
+        "internalType": "struct ISchizoLens.PackedNation[]",
+        "components": [
+          {
+            "name": "leader",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "mode",
+            "type": "uint8",
+            "internalType": "enum SchizoTypes.NationMode"
+          },
+          {
+            "name": "isAlive",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "capital",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "provinceCount",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "crystals",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "mana",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "production",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "totalShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "goldPerDayAggregate",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "goldDebuffUntil",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getPlayer",
+    "inputs": [
+      {
+        "name": "player",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "nationIds",
+        "type": "uint16[]",
+        "internalType": "uint16[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct ISchizoLens.PlayerView",
+        "components": [
+          {
+            "name": "registered",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "gold",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "level",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "conquestPoints",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pfpId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "nickname",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "faucet",
+            "type": "tuple",
+            "internalType": "struct ISchizoLens.FaucetView",
+            "components": [
+              {
+                "name": "lastClaim",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "streak",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "level",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "nextPayout",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "faucetCollection",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "holdsCollectionNft",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "cooldown",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "claimableAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "eligible",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "gate",
+                "type": "uint8",
+                "internalType": "enum ISchizoLens.FaucetGate"
+              }
+            ]
+          },
+          {
+            "name": "holdings",
+            "type": "tuple[]",
+            "internalType": "struct ISchizoLens.NationHolding[]",
+            "components": [
+              {
+                "name": "nationId",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "shares",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "pendingGold",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "controlled",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "isLeader",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getProvinces",
+    "inputs": [
+      {
+        "name": "from",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "to",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "words",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "factors",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "error",
+    "name": "InvalidRange",
+    "inputs": []
+  }
+]
