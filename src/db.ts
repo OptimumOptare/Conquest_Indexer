@@ -1,6 +1,6 @@
 /**
- * SQLite store. One append-only `events` table plus a cursor and a short reorg log, and two
- * small UD24 indexes folded from it (`players`, `presence`).
+ * SQLite store. One append-only `events` table plus a cursor and a short reorg log, and three
+ * small UD24 indexes folded from it (`players`, `presence`, `policy_nations`).
  *
  * Sizing: a round is tens of thousands of logs — megabytes. SQLite on a Railway volume is the
  * right tool; Postgres would only buy multi-instance writes, which this service does not want
@@ -9,6 +9,7 @@
  * The indexes are written in the same transaction as the events they come from, and every row
  * keeps the block of the log that first proved it (`first_block`). That makes a reorg rewind a
  * plain `first_block >= n` delete: a row whose first proof survives the rewind is still true.
+ * `policy_nations` has one row per log, so it rewinds by the log's own block.
  */
 
 import Database from 'better-sqlite3';
@@ -23,7 +24,9 @@ import {
   type IndexableLog,
   type NecromancyCredits,
   type NecromancyRequest,
+  type PresencePair,
 } from './indexes.js';
+import { policyNations } from './policy.js';
 
 /**
  * `SchizoCore`'s constructor opens round 1, and every later round is announced by a `RoundReset`
@@ -33,6 +36,12 @@ const FIRST_ROUND_ID = 1n;
 
 /** Bump to force a rebuild of `players` / `presence` from `events` on the next boot. */
 const INDEXES_VERSION = '1';
+
+/**
+ * Bump to force a rebuild of `policy_nations` from `events` on the next boot. That rebuild needs no
+ * chain read, so unlike `INDEXES_VERSION` it runs inside `openStore`.
+ */
+const POLICY_INDEX_VERSION = '1';
 
 export type StoredLog = {
   readonly address: string;
@@ -153,6 +162,20 @@ export function openStore(dbPath: string, startBlock: bigint) {
     );
     CREATE INDEX IF NOT EXISTS presence_by_first_block
       ON presence (first_block);
+    -- /positions re-reads one province's pairs at a time (U22.3).
+    CREATE INDEX IF NOT EXISTS presence_by_province
+      ON presence (round_start, province);
+
+    -- The nation ids each policy log carries in its topics (U22.6), one row per (log, nation).
+    -- Keyed nation first, because /policy reads one nation's logs in chain order.
+    CREATE TABLE IF NOT EXISTS policy_nations (
+      block_num INTEGER NOT NULL,
+      log_index INTEGER NOT NULL,
+      nation_id INTEGER NOT NULL,
+      PRIMARY KEY (nation_id, block_num, log_index)
+    );
+    CREATE INDEX IF NOT EXISTS policy_nations_by_block
+      ON policy_nations (block_num);
   `);
 
   const getMeta = db.prepare<[string], { value: string }>(
@@ -180,6 +203,24 @@ export function openStore(dbPath: string, startBlock: bigint) {
     `INSERT INTO presence (round_start, player, province, first_block) VALUES (?, ?, ?, ?)
      ON CONFLICT(round_start, player, province) DO NOTHING`,
   );
+
+  const insertPolicyNation = db.prepare(
+    `INSERT INTO policy_nations (block_num, log_index, nation_id) VALUES (?, ?, ?)
+     ON CONFLICT(nation_id, block_num, log_index) DO NOTHING`,
+  );
+
+  type PolicyIndexable = Pick<
+    StoredLog,
+    'eventName' | 'category' | 'topics' | 'blockNumber' | 'logIndex'
+  >;
+
+  /** Index a stored log's nation ids, if it is a policy log (U22.6). */
+  function indexPolicy(log: PolicyIndexable): void {
+    if (log.category !== 'policy') return;
+    for (const nation of policyNations(log)) {
+      insertPolicyNation.run(Number(log.blockNumber), log.logIndex, nation);
+    }
+  }
 
   const latestRoundReset = db.prepare<[], { block_num: number }>(
     "SELECT MAX(block_num) AS block_num FROM events WHERE event_name = 'RoundReset'",
@@ -228,6 +269,7 @@ export function openStore(dbPath: string, startBlock: bigint) {
           log.category,
           Number(log.blockNumber),
         );
+        indexPolicy(log);
       }
       setMeta.run('next_from', cursor.nextFrom.toString());
       setMeta.run('confirmed_hash', cursor.confirmedHash ?? '');
@@ -237,6 +279,7 @@ export function openStore(dbPath: string, startBlock: bigint) {
   const deleteFrom = db.prepare('DELETE FROM events WHERE block_num >= ?');
   const deletePlayersFrom = db.prepare('DELETE FROM players WHERE first_block >= ?');
   const deletePresenceFrom = db.prepare('DELETE FROM presence WHERE first_block >= ?');
+  const deletePolicyNationsFrom = db.prepare('DELETE FROM policy_nations WHERE block_num >= ?');
   const insertReorg = db.prepare(
     'INSERT INTO reorgs (block_num, seen_at) VALUES (?, ?) ' +
       'ON CONFLICT(block_num) DO UPDATE SET seen_at = excluded.seen_at',
@@ -247,6 +290,7 @@ export function openStore(dbPath: string, startBlock: bigint) {
     deleteFrom.run(Number(fromBlock));
     deletePlayersFrom.run(Number(fromBlock));
     deletePresenceFrom.run(Number(fromBlock));
+    deletePolicyNationsFrom.run(Number(fromBlock));
     insertReorg.run(Number(fromBlock), Date.now());
     pruneReorgs.run(Number(fromBlock) - 10_000);
     setMeta.run('next_from', cursor.nextFrom.toString());
@@ -319,8 +363,40 @@ export function openStore(dbPath: string, startBlock: bigint) {
       ORDER BY player ASC, province ASC`,
   );
 
+  const provincePresence = db.prepare<[number, number], { player: string }>(
+    `SELECT player
+       FROM presence
+      WHERE round_start = ? AND province = ?
+      ORDER BY player ASC`,
+  );
+
+  // One row per province: InfectionSpread's only topic is the province, so equal topics are
+  // the same province.
+  const infectionTopics = db.prepare<[number], { topics: string }>(
+    `SELECT DISTINCT topics
+       FROM events
+      WHERE event_name = 'InfectionSpread' AND block_num >= ?`,
+  );
+
+  // USING merges the two tables' block_num / log_index, so EVENT_COLUMNS stays unqualified.
+  const nationPolicy = db.prepare<[number, number], EventRow>(
+    `SELECT ${EVENT_COLUMNS}
+       FROM policy_nations
+       JOIN events USING (block_num, log_index)
+      WHERE nation_id = ? AND block_num >= ? AND category = 'policy'
+      ORDER BY block_num ASC, log_index ASC`,
+  );
+
+  type PolicyRow = Pick<EventRow, 'topics' | 'event_name' | 'category' | 'block_num' | 'log_index'>;
+  const policyEventRows = db.prepare<[], PolicyRow>(
+    `SELECT topics, event_name, category, block_num, log_index
+       FROM events
+      WHERE category = 'policy'`,
+  );
+
   const clearPlayers = db.prepare('DELETE FROM players');
   const clearPresence = db.prepare('DELETE FROM presence');
+  const clearPolicyNations = db.prepare('DELETE FROM policy_nations');
 
   const rebuildTx = db.transaction((necromancy: NecromancyCredits) => {
     clearPlayers.run();
@@ -337,6 +413,24 @@ export function openStore(dbPath: string, startBlock: bigint) {
   // A table that predates the indexes is rebuilt on boot instead (`rebuildIndexes`).
   if (getMeta.get('indexes') === undefined && (countAll.get()?.n ?? 0) === 0) {
     setMeta.run('indexes', INDEXES_VERSION);
+  }
+
+  // `policy_nations` comes from the topics alone, so a database that predates it (or an older
+  // version of it) is backfilled from `events` right here, before any route can read it.
+  if (getMeta.get('policy_index')?.value !== POLICY_INDEX_VERSION) {
+    db.transaction(() => {
+      clearPolicyNations.run();
+      for (const row of policyEventRows.all()) {
+        indexPolicy({
+          eventName: row.event_name,
+          category: row.category as FeedCategory,
+          topics: JSON.parse(row.topics) as string[],
+          blockNumber: BigInt(row.block_num),
+          logIndex: row.log_index,
+        });
+      }
+      setMeta.run('policy_index', POLICY_INDEX_VERSION);
+    })();
   }
 
   return {
@@ -426,6 +520,15 @@ export function openStore(dbPath: string, startBlock: bigint) {
       return { logs: kept.map(toWire), asOfBlock: BigInt(lastFull - 1) };
     },
 
+    /**
+     * `/policy?nation=` payload (U22.6): every current-round policy log whose topics carry
+     * `nationId`, oldest first. Uncapped, unlike the `/snapshot` ring. Same round floor as
+     * `/snapshot`.
+     */
+    policyLogs(nationId: number): WireLog[] {
+      return nationPolicy.all(nationId, this.roundStartBlock()).map(toWire);
+    },
+
     /** Lowest block a reorg invalidated at or below `since`, if any. */
     reorgFrom(since: bigint): bigint | null {
       const row = reorgSince.get(Number(since));
@@ -483,6 +586,43 @@ export function openStore(dbPath: string, startBlock: bigint) {
         (out[row.player] ??= []).push(row.province);
       }
       return out;
+    },
+
+    /**
+     * Current-round (player, province) pairs: all of them, or only those in `provinces`.
+     * These are the pairs `/positions` reads `effectiveTroops` for (U22.3).
+     */
+    presencePairs(provinces?: Iterable<number>): PresencePair[] {
+      const round = this.currentRound().startBlock;
+      if (provinces === undefined) {
+        return roundPresence.all(round).map((row) => ({
+          player: row.player,
+          province: row.province,
+        }));
+      }
+      const out: PresencePair[] = [];
+      for (const province of provinces) {
+        for (const row of provincePresence.all(round, province)) {
+          out.push({ player: row.player, province });
+        }
+      }
+      return out;
+    },
+
+    /**
+     * Every province with an `InfectionSpread` this round, ascending. Every `markInfected` emits
+     * one and nothing clears an infection within a round, so this is the list `advanceInfection`
+     * folds decay over (`infectedProvinces[roundId]`).
+     */
+    infectedProvinces(): number[] {
+      const out = new Set<number>();
+      for (const row of infectionTopics.all(this.roundStartBlock())) {
+        const topic = (JSON.parse(row.topics) as string[])[1];
+        if (topic === undefined) continue;
+        const province = Number(BigInt(topic));
+        if (province > 0) out.add(province);
+      }
+      return [...out].sort((a, b) => a - b);
     },
   };
 }

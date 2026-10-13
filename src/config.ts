@@ -49,6 +49,9 @@ const MONAD_TESTNET_CONTRACTS: Record<ContractName, string> = {
 /** SchizoCore creation block — the deploy anchor the browser must never crawl from. */
 const MONAD_TESTNET_START_BLOCK = 63_589_123;
 
+/** Canonical Multicall3 (same CREATE2 address on every chain); the UI batches through it too. */
+const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11';
+
 export type Config = {
   readonly chainId: number;
   /**
@@ -67,6 +70,8 @@ export type Config = {
   /** Range cap on the backfill endpoint. HyperRPC has none, so go wide. */
   readonly backfillLogRangeMaxBlocks: number;
   readonly contracts: Record<ContractName, `0x${string}`>;
+  /** Multicall3, for the `/positions` and `/leaderboard` `aggregate3` batches. Not a game contract. */
+  readonly multicall3: `0x${string}`;
   readonly startBlock: bigint;
   readonly port: number;
   readonly dbPath: string;
@@ -80,10 +85,33 @@ export type Config = {
    * than a tail tick needs (~3 blocks) — it only decides when the backfill endpoint takes over.
    */
   readonly logRangeMaxBlocks: number;
-  /** Parallel range requests during the initial catch-up. */
+  /** Parallel requests on `rpcHttp`: catch-up ranges, and the cached reads' `aggregate3` batches. */
   readonly catchupConcurrency: number;
   /** Blocks kept below the tip for reorg rewinds. */
   readonly reorgDepthBlocks: number;
+  /**
+   * `effectiveTroops` calls per `aggregate3` on `rpcHttp` (U22.3). Every Monad RPC caps
+   * `eth_call` gas, and the public endpoint's 30M is the lowest measured (Q-U35b). Measured on
+   * it 2026-10-11: ~29k gas per call, mostly cold `SLOAD`s, so 200 calls cost 5.8M and 1,000
+   * cost 29.0M, right at the cap. 200 is the UI's on-demand chunk size and leaves ~5× margin.
+   */
+  readonly positionsBatchCalls: number;
+  /** Full `/positions` re-read interval, the check that no trigger is missing (UD20's idea). */
+  readonly positionsSweepMs: number;
+  /**
+   * `getPlayer` calls per `aggregate3` (U22.4). One `getPlayer` over all 194 nations costs ~11.2M
+   * gas alone and ~8.1M more per extra call in the same `aggregate3` (measured on the public
+   * endpoint 2026-10-11): 2 fit `leaderboardCallGas` = 30M with ~35% margin, 3 barely, 4 do not.
+   */
+  readonly leaderboardBatchCalls: number;
+  /**
+   * Explicit gas limit on each `getPlayer` batch. Without one the public endpoint's default runs a
+   * one- or two-call `aggregate3` out of gas (measured 2026-10-11). 30M is the lowest provider
+   * `eth_call` cap measured (Q-U35b).
+   */
+  readonly leaderboardCallGas: bigint;
+  /** Full `/leaderboard` re-read interval, the same check as `positionsSweepMs`. */
+  readonly leaderboardSweepMs: number;
 };
 
 function env(name: string): string | undefined {
@@ -101,7 +129,7 @@ function intEnv(name: string, fallback: number): number {
   return Math.floor(parsed);
 }
 
-function addressEnv(name: ContractName, fallback: string): `0x${string}` {
+function addressEnv(name: ContractName | 'multicall3', fallback: string): `0x${string}` {
   const key = `ADDR_${name.replace(/([A-Z])/g, '_$1').toUpperCase()}`;
   const raw = env(key) ?? fallback;
   if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) {
@@ -133,6 +161,7 @@ export function loadConfig(): Config {
     // only because the backfill endpoint is the rate-limited one.
     backfillLogRangeMaxBlocks: intEnv('BACKFILL_LOG_RANGE_MAX_BLOCKS', 50_000_000),
     contracts,
+    multicall3: addressEnv('multicall3', MULTICALL3_ADDRESS),
     startBlock: BigInt(intEnv('START_BLOCK', MONAD_TESTNET_START_BLOCK)),
     port: intEnv('PORT', 8787),
     dbPath: env('DB_PATH') ?? './data/indexer.db',
@@ -144,5 +173,10 @@ export function loadConfig(): Config {
     logRangeMaxBlocks: intEnv('LOG_RANGE_MAX_BLOCKS', 100),
     catchupConcurrency: intEnv('CATCHUP_CONCURRENCY', 4),
     reorgDepthBlocks: intEnv('REORG_DEPTH_BLOCKS', 128),
+    positionsBatchCalls: Math.max(1, intEnv('POSITIONS_BATCH_CALLS', 200)),
+    positionsSweepMs: intEnv('POSITIONS_SWEEP_MS', 5 * 60_000),
+    leaderboardBatchCalls: Math.max(1, intEnv('LEADERBOARD_BATCH_CALLS', 2)),
+    leaderboardCallGas: BigInt(intEnv('LEADERBOARD_CALL_GAS', 30_000_000)),
+    leaderboardSweepMs: intEnv('LEADERBOARD_SWEEP_MS', 5 * 60_000),
   };
 }

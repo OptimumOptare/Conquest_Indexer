@@ -85,6 +85,18 @@ const META = new Set([
   'ProvincePowerSet',
 ]);
 
+const CATEGORY_EVENTS: Record<FeedCategory, ReadonlySet<string>> = {
+  activity: ACTIVITY,
+  news: NEWS,
+  policy: POLICY,
+  meta: META,
+};
+
+/** Every cataloged event in `category`. `/policy` checks its nation-id table against this (U22.6). */
+export function catalogEvents(category: FeedCategory): readonly string[] {
+  return [...CATEGORY_EVENTS[category]];
+}
+
 export function categorizeEvent(eventName: string): FeedCategory | null {
   if (ACTIVITY.has(eventName)) return 'activity';
   if (NEWS.has(eventName)) return 'news';

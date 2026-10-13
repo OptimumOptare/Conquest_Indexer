@@ -29,6 +29,8 @@ import {
   type NecromancyRequest,
   type PresencePair,
 } from './indexes.js';
+import { createLeaderboard, type Leaderboard } from './leaderboard.js';
+import { createPositions, type Positions } from './positions.js';
 
 /** One ABI for the whole §16 catalogue: `SchizoCore` emits every event (M19a). */
 const CORE_ABI = schizoCoreAbi as Abi;
@@ -147,13 +149,22 @@ export type Ingestor = {
   start: () => Promise<void>;
   stop: () => void;
   status: () => IngestStatus;
+  /** The `/positions` cache this loop keeps current (U22.3). */
+  positions: Positions;
+  /** The `/leaderboard` cache this loop keeps current (U22.4). */
+  leaderboard: Leaderboard;
 };
 
 export function createIngestor(
   config: Config,
   store: Store,
-  client: Pick<PublicClient, 'getBlockNumber' | 'getBlock' | 'getLogs' | 'readContract'>,
+  client: Pick<
+    PublicClient,
+    'getBlockNumber' | 'getBlock' | 'getLogs' | 'readContract' | 'multicall' | 'call'
+  >,
   backfillClient: Pick<PublicClient, 'getLogs'> | null = null,
+  positions: Positions = createPositions(config, store, client),
+  leaderboard: Leaderboard = createLeaderboard(config, store, client, positions),
 ): Ingestor {
   const coreAddress = config.contracts.core as Address;
   const lensAddress = config.contracts.lens as Address;
@@ -216,8 +227,9 @@ export function createIngestor(
   /**
    * (leader, capital) for each crediting `NecromancyResolved` (Q-U19), read from
    * `SchizoLens.getNations` **at the log's block**: the credit went to whoever led the nation
-   * then, and leadership is not rebuilt from `LeaderChanged`. This is the service's only
-   * `eth_call`, one per block that resolved a window, so it is rare.
+   * then, and leadership is not rebuilt from `LeaderChanged`. One `eth_call` per block that
+   * resolved a window, so it is rare. The other `eth_call`s are the cached reads'
+   * (`positions.ts`, `leaderboard.ts`).
    */
   async function resolveNecromancy(
     requests: readonly NecromancyRequest[],
@@ -280,7 +292,23 @@ export function createIngestor(
         : null;
 
     store.rewind(rewindTo, { nextFrom: rewindTo, confirmedHash });
+    positions.invalidate();
+    leaderboard.invalidate();
     status.headBlock = store.headBlock();
+  }
+
+  /**
+   * Re-read what the batches since the last refresh dirtied, at the block ingest has reached.
+   * Only at the tip: during a catch-up each window's head is already history, and the dirty sets
+   * simply accumulate. `/positions` goes first, because `/leaderboard` takes its `troops` from it
+   * at the same block. Errors stay in each cache's `status()`, so a failed `eth_call` never stalls
+   * ingest.
+   */
+  async function refreshCaches(): Promise<void> {
+    if (status.catchingUp || !store.indexesReady()) return;
+    const head = store.headBlock();
+    await positions.refresh(head);
+    await leaderboard.refresh(head);
   }
 
   async function tick(): Promise<number> {
@@ -296,6 +324,7 @@ export function createIngestor(
     if (cursor.nextFrom > tip) {
       status.catchingUp = false;
       status.lastTickAt = Date.now();
+      await refreshCaches();
       return 0;
     }
 
@@ -321,10 +350,13 @@ export function createIngestor(
       { nextFrom: toBlock + 1n, confirmedHash: confirmed.hash },
       necromancy,
     );
+    positions.observe(logs, necromancy);
+    leaderboard.observe(logs);
 
     status.headBlock = toBlock;
     status.catchingUp = toBlock < tip;
     status.lastTickAt = Date.now();
+    await refreshCaches();
     return logs.length;
   }
 
@@ -359,5 +391,7 @@ export function createIngestor(
     status() {
       return { ...status };
     },
+    positions,
+    leaderboard,
   };
 }

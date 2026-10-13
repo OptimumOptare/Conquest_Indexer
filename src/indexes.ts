@@ -76,7 +76,7 @@ function asAddress(value: unknown): string | null {
   return null;
 }
 
-function asPositiveId(value: unknown): number | null {
+export function asPositiveId(value: unknown): number | null {
   if (typeof value === 'bigint') {
     const n = Number(value);
     return Number.isInteger(n) && n > 0 ? n : null;
@@ -146,7 +146,16 @@ export function troopPresencePairs(
 
 /** Decoded args of an index event, or null for any other event or an undecodable log. */
 function indexArgs(log: IndexableLog): Record<string, unknown> | null {
-  if (!INDEX_EVENTS.has(log.eventName) || log.topics.length === 0) return null;
+  if (!INDEX_EVENTS.has(log.eventName)) return null;
+  return decodeCoreArgs(log);
+}
+
+/**
+ * Decoded args of any `SchizoCore` log, or null when it does not decode as the event it was
+ * stored as. Used for index keys only: the wire still carries the raw log.
+ */
+export function decodeCoreArgs(log: IndexableLog): Record<string, unknown> | null {
+  if (log.topics.length === 0) return null;
   try {
     const decoded = decodeEventLog({
       abi: CORE_ABI,
