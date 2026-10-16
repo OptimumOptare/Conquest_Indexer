@@ -146,6 +146,7 @@ same refresh. `RoundReset` dirties everyone.
 | admin airdrops | gold, CP | `GoldAirdropped` / `CPAirdropped` `.player` |
 | `setNickname`, `adminSetNickname` | nickname | `NicknameSet.player` |
 | leader actions above | gold, CP | none; `leaderOf(nation)` at the head |
+| black-market `takeOffer` paid in gold (D46) | gold | `OfferTaken.taker` (payer); the seller's leader via `leaderOf(sellerNation)` at the head |
 
 Everything else works the same way as `/positions`. A block that names no player advances
 `asOfBlock` with no read, and `troops` follows `/positions`. A failed read, or `/positions` not yet
@@ -282,7 +283,7 @@ volume — otherwise this serves a dead stack's history.
 
 ```
 src/config.ts   env → typed config; M23 address book defaults (SchizoCore + SchizoLens)
-src/catalog.ts  §16 categories + UD11 ring limits (copy of the UI's, checked by sync:abis)
+src/catalog.ts  §16 categories + `market` (D46) + UD11 ring limits (copy of the UI's, checked by sync:abis)
 src/db.ts       SQLite: events, cursor, reorg log, players/presence/policy_nations; snapshot/delta/index queries
 src/indexes.ts  UD24 index facts per log: registrations, presence pairs (troopPresence.ts port)
 src/policy.ts   /policy nation-id topics per policy event, checked against the catalog and ABI at boot

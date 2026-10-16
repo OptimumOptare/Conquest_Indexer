@@ -24,11 +24,14 @@
  * | `setNickname`, `adminSetNickname`               | nickname     | `NicknameSet.player`          |
  * | `setMode`, `rename`, `proposeAlliance`, `declareWar` → `spendGold` | gold | **none** |
  * | `deployWeapon` (Bio, Orbital, Nuke, Necromancy) → `grantCP` | CP | **none**              |
+ * | `takeOffer` paid in gold (black market, D46)    | gold         | `OfferTaken.taker` (payer); seller's leader **none** |
  * | a new round (gold and shares are round-scoped)  | gold, shares | `RoundReset` → everyone       |
  *
- * The two "none" rows are leader actions. Their logs (`ModeChanged`, `NationRenamed`,
+ * The three "none" rows are leader actions. Their logs (`ModeChanged`, `NationRenamed`,
  * `AllianceProposed`, `WarDeclared`, `WeaponDeployed`) carry nation ids only, so the address rule
- * alone would miss every one of them and the sweep would report it each time. They are never
+ * alone would miss every one of them and the sweep would report it each time. `OfferTaken` names
+ * the paying leader (`taker`, an address arg) but credits the **seller's** leader, who it names
+ * only as `sellerNation`; the gold goes to whoever led that nation at the take (spec 08). They are never
  * delegable (I10), so the payer is `msg.sender`, the nation's leader at that block. The cache
  * resolves it as `leaderOf(nation)` at the refresh head. That is the same address unless
  * leadership moved in between, and the only writer of `leader` (`claimLeadership`) logs
@@ -94,6 +97,9 @@ export const LEADER_PAID_ARGS: Readonly<Record<string, string>> = {
   AllianceProposed: 'byNation',
   WarDeclared: 'byNation',
   WeaponDeployed: 'nationId',
+  // D46 — the seller's leader is credited a gold payment. Resource-paid takes move no gold, and
+  // re-reading the seller's leader then is a harmless extra read.
+  OfferTaken: 'sellerNation',
 };
 
 /**
@@ -111,6 +117,7 @@ const PLAYER_WRITER_ARGS: Readonly<Record<string, string>> = {
   CPAirdropped: 'player',
   NicknameSet: 'player',
   LeaderChanged: 'oldLeader',
+  OfferTaken: 'taker',
 };
 
 /**

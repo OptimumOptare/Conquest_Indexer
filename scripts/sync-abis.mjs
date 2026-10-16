@@ -51,13 +51,18 @@ for (const file of ABI_FILES) {
 }
 
 // --- §16 catalog ------------------------------------------------------------
-/** Pull the four `new Set([...])` blocks out of a source file, by order of appearance. */
+/**
+ * Pull the five `new Set([...])` blocks out of a source file, by order of appearance. Line
+ * comments inside a set are stripped first: a comment with a comma in it (the UI's D45 note in
+ * meta) would otherwise split into a junk entry.
+ */
 function catalogSets(source) {
   const names = [];
   const setPattern = /new Set\(\[([^\]]*)\]\)/g;
   let match;
   while ((match = setPattern.exec(source)) !== null) {
     const entries = match[1]
+      .replace(/\/\/.*$/gm, '')
       .split(',')
       .map((entry) => entry.trim().replace(/^['"]|['"]$/g, ''))
       .filter((entry) => entry !== '' && !entry.startsWith('//'));
@@ -73,7 +78,8 @@ const ownCatalog = catalogSets(
   readFileSync(join(repoRoot, 'src/catalog.ts'), 'utf8'),
 );
 
-const CATEGORIES = ['activity', 'news', 'policy', 'meta'];
+/** D46 (F7.1) added `market`, the Black Market trade history. Same order in both files. */
+const CATEGORIES = ['activity', 'news', 'policy', 'meta', 'market'];
 if (uiCatalog.length !== CATEGORIES.length) {
   problems.push(
     `could not read the UI catalog: found ${uiCatalog.length} sets, expected ${CATEGORIES.length}`,

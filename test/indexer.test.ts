@@ -162,6 +162,16 @@ describe('§16 catalog', () => {
     expect(categorizeEvent('RoundReset')).toBe('meta');
     expect(categorizeEvent('RoleGranted')).toBeNull();
   });
+
+  it('D45 TreasuryCaptured is meta; D46 OfferTaken is the market ring, and nothing else of the market is', () => {
+    expect(categorizeEvent('TreasuryCaptured')).toBe('meta');
+    expect(categorizeEvent('OfferTaken')).toBe('market');
+    expect(catalogEvents('market')).toEqual(['OfferTaken']);
+    expect(FEED_BUFFER_LIMITS.market).toBe(200);
+    for (const name of ['OfferOpened', 'OfferCancelled', 'OffersVoided']) {
+      expect(categorizeEvent(name)).toBeNull();
+    }
+  });
 });
 
 describe('log decoding', () => {
@@ -512,6 +522,30 @@ function coreLog(
   });
 }
 
+/** D46 — `takerNation` bought a Nuke from `sellerNation` for 500 gold, paid by `taker`. */
+const offerTaken = (
+  sellerNation: number,
+  takerNation: number,
+  taker: string,
+  block: bigint,
+  logIndex = 0,
+) =>
+  coreLog(
+    'OfferTaken',
+    {
+      sellerNation,
+      slot: 0,
+      takerNation,
+      taker,
+      giveAsset: 2,
+      giveWeaponId: 7,
+      giveAmount: 1n,
+      payAsset: 3,
+      payAmount: 500n,
+    },
+    block,
+    logIndex,
+  );
 const registered = (player: string, block: bigint, logIndex = 0) =>
   coreLog('PlayerRegistered', { player }, block, logIndex);
 const recruitedAt = (player: string, province: number, block: bigint, logIndex = 0) =>
@@ -665,6 +699,22 @@ describe('/players (UD24)', () => {
     // The Registry is never reset (AGENTS rule 4); a round floor here was the original bug.
     expect(response.body.players).toEqual([ALICE, BOB]);
     expect(response.body.roundId).toBe('2');
+    store.close();
+  });
+
+  it('keeps trades in their own ring: 250 registrations do not evict a take (D46)', async () => {
+    const store = openStore(':memory:', 100n);
+    const logs: ReturnType<typeof coreLog>[] = [offerTaken(7, 4, BOB, 101n)];
+    for (let i = 1; i <= FEED_BUFFER_LIMITS.meta + 50; i++) {
+      logs.push(registered(`0x${i.toString(16).padStart(40, '0')}`, BigInt(101 + i)));
+    }
+    commitAll(store, logs, 400n);
+
+    const snapshot = await request(store, '/snapshot');
+    expect(snapshot.body.logs).toHaveLength(FEED_BUFFER_LIMITS.meta + 1);
+    expect(snapshot.body.logs.some((log: { blockNumber: string }) => log.blockNumber === '101')).toBe(
+      true,
+    );
     store.close();
   });
 
@@ -1811,6 +1861,10 @@ describe('/leaderboard triggers (U22.4)', () => {
     expect(of(renamed(7, 101n)).nations).toEqual([7]);
     expect(of(allianceProposed(4, 6, 101n)).nations).toEqual([4]);
     expect(of(deployed(9, 101n)).nations).toEqual([1]);
+  });
+
+  it('a black-market take dirties the paying leader and the seller nation’s leader (D46)', () => {
+    expect(of(offerTaken(7, 4, BOB, 101n))).toEqual({ players: [BOB], nations: [7], all: false });
   });
 
   it('re-reads everyone at a RoundReset, and nobody for a log with no player in it', () => {

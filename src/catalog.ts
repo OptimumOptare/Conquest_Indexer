@@ -1,5 +1,5 @@
 /**
- * §16 event catalog — the same four buckets and the same limits the UI's
+ * §16 event catalog — the same five buckets (D46 added `market`) and the same limits the UI's
  * `ui/src/chain/feedEvents.ts` uses.
  *
  * This file is a deliberate copy of a UI module, and that is a drift risk worth naming: if the
@@ -13,7 +13,7 @@
  * in the wrong feed tab but can never be misread as different data.
  */
 
-export type FeedCategory = 'activity' | 'news' | 'policy' | 'meta';
+export type FeedCategory = 'activity' | 'news' | 'policy' | 'meta' | 'market';
 
 /** UD11 ring-buffer caps — how much history `/snapshot` serves per category. */
 export const FEED_BUFFER_LIMITS: Record<FeedCategory, number> = {
@@ -21,6 +21,7 @@ export const FEED_BUFFER_LIMITS: Record<FeedCategory, number> = {
   news: 200,
   policy: 200,
   meta: 200,
+  market: 200,
 };
 
 const ACTIVITY = new Set([
@@ -83,13 +84,22 @@ const META = new Set([
   'ProvinceDestroyed',
   'ProvinceRevived',
   'ProvincePowerSet',
+  // D45 — the treasury a capital capture moved; the UI's conquest window reads it (U23.1).
+  'TreasuryCaptured',
 ]);
+
+/**
+ * D46 (F7.1) — the Black Market trade history. `OfferTaken` names both nations, the goods and the
+ * payment, so one log is one row. Opens, cancels and voids are not history and stay uncataloged.
+ */
+const MARKET = new Set(['OfferTaken']);
 
 const CATEGORY_EVENTS: Record<FeedCategory, ReadonlySet<string>> = {
   activity: ACTIVITY,
   news: NEWS,
   policy: POLICY,
   meta: META,
+  market: MARKET,
 };
 
 /** Every cataloged event in `category`. `/policy` checks its nation-id table against this (U22.6). */
@@ -102,5 +112,6 @@ export function categorizeEvent(eventName: string): FeedCategory | null {
   if (NEWS.has(eventName)) return 'news';
   if (POLICY.has(eventName)) return 'policy';
   if (META.has(eventName)) return 'meta';
+  if (MARKET.has(eventName)) return 'market';
   return null;
 }

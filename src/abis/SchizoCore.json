@@ -310,6 +310,24 @@
   },
   {
     "type": "function",
+    "name": "cancelOffer",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "capitalOf",
     "inputs": [
       {
@@ -1381,6 +1399,35 @@
   },
   {
     "type": "function",
+    "name": "lockedOf",
+    "inputs": [
+      {
+        "name": "roundId_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "crystals",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "mana",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "massConscriptionBps",
     "inputs": [
       {
@@ -1585,6 +1632,156 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "offerAskAt",
+    "inputs": [
+      {
+        "name": "roundId_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct OfferAsk",
+        "components": [
+          {
+            "name": "askGold",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "askCrystals",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "askMana",
+            "type": "uint96",
+            "internalType": "uint96"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "offerAt",
+    "inputs": [
+      {
+        "name": "roundId_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "live",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "offer",
+        "type": "tuple",
+        "internalType": "struct Offer",
+        "components": [
+          {
+            "name": "epoch",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "giveAsset",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "giveWeaponId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "giveAmount",
+            "type": "uint96",
+            "internalType": "uint96"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "openOffer",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "giveAsset",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "giveWeaponId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "giveAmount",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "askGold",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "askCrystals",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "askMana",
+        "type": "uint96",
+        "internalType": "uint96"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -2465,6 +2662,34 @@
   },
   {
     "type": "function",
+    "name": "takeOffer",
+    "inputs": [
+      {
+        "name": "takerNation",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "sellerNation",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "payAsset",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "techLevelOf",
     "inputs": [
       {
@@ -3301,6 +3526,160 @@
   },
   {
     "type": "event",
+    "name": "OfferCancelled",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OfferOpened",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "giveAsset",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "giveWeaponId",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "giveAmount",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      },
+      {
+        "name": "askGold",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "askCrystals",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      },
+      {
+        "name": "askMana",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OfferTaken",
+    "inputs": [
+      {
+        "name": "sellerNation",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "takerNation",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "taker",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "giveAsset",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "giveWeaponId",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "giveAmount",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      },
+      {
+        "name": "payAsset",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "payAmount",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OffersVoided",
+    "inputs": [
+      {
+        "name": "nationId",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "newEpoch",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ParamChanged",
     "inputs": [
       {
@@ -3678,6 +4057,43 @@
   },
   {
     "type": "event",
+    "name": "TreasuryCaptured",
+    "inputs": [
+      {
+        "name": "loserNation",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "winnerNation",
+        "type": "uint16",
+        "indexed": true,
+        "internalType": "uint16"
+      },
+      {
+        "name": "crystals",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "mana",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "bps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TroopsBurned",
     "inputs": [
       {
@@ -4012,6 +4428,11 @@
   },
   {
     "type": "error",
+    "name": "InvalidOffer",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidPerkKind",
     "inputs": [
       {
@@ -4074,7 +4495,17 @@
   },
   {
     "type": "error",
+    "name": "NoSuchOffer",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NoSuchProposal",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAccepted",
     "inputs": []
   },
   {
@@ -4115,6 +4546,11 @@
   {
     "type": "error",
     "name": "NotLeader",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotOfferable",
     "inputs": []
   },
   {
@@ -4192,6 +4628,16 @@
   {
     "type": "error",
     "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SelfTrade",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SlotOccupied",
     "inputs": []
   },
   {

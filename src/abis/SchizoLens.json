@@ -236,6 +236,16 @@
             "internalType": "uint256"
           },
           {
+            "name": "lockedCrystals",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lockedMana",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
             "name": "production",
             "type": "uint8",
             "internalType": "uint8"
@@ -259,6 +269,72 @@
             "name": "name",
             "type": "string",
             "internalType": "string"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getOffers",
+    "inputs": [
+      {
+        "name": "fromNation",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "toNation",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "offers",
+        "type": "tuple[]",
+        "internalType": "struct ISchizoLens.LiveOffer[]",
+        "components": [
+          {
+            "name": "nationId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "slot",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "giveAsset",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "giveWeaponId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "giveAmount",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "askGold",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "askCrystals",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "askMana",
+            "type": "uint96",
+            "internalType": "uint96"
           }
         ]
       }
