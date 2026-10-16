@@ -3,7 +3,7 @@
  * which has none on purpose: an indexer pointed at the wrong chain is worse than one that
  * refuses to boot.
  *
- * The contract addresses default to the M23 Monad-testnet deployment recorded in the UI's
+ * The contract addresses default to the live Monad-testnet deployment recorded in the UI's
  * address book (`ui/src/chain/addresses.ts` §00.6). They are deployment configuration, not
  * game parameters — no game number is ever hardcoded here or served from here.
  */
@@ -40,14 +40,14 @@ export type ContractName = 'core' | 'lens';
 
 export const CONTRACT_NAMES: readonly ContractName[] = ['core', 'lens'];
 
-/** M23 monolith stack (alpha), Monad testnet (10143). Mirrors the UI address book. */
+/** 2026-10-16 monolith stack, Monad testnet (10143). Mirrors the UI address book. */
 const MONAD_TESTNET_CONTRACTS: Record<ContractName, string> = {
-  core: '0x37e46aB1b63CDCBc18a7C738Cc43e0c146C6873f',
-  lens: '0x63449a654091e81c93DA574e29ddcFCc4E6FF65E',
+  core: '0x38036CAec40984A0A065C5eBa47BB63A06be4cd9',
+  lens: '0xD3D04E9E10565587A20c9Bb7D69bE58e3F4383f6',
 };
 
 /** SchizoCore creation block — the deploy anchor the browser must never crawl from. */
-const MONAD_TESTNET_START_BLOCK = 63_589_123;
+const MONAD_TESTNET_START_BLOCK = 71_642_912;
 
 /** Canonical Multicall3 (same CREATE2 address on every chain); the UI batches through it too. */
 const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11';

@@ -39,8 +39,8 @@ import { POLICY_NATION_ARGS, policyNations, policyNationTopics } from '../src/po
 
 const CHAIN = 10_143;
 const PLAYER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' as const;
-const CORE = '0x37e46aB1b63CDCBc18a7C738Cc43e0c146C6873f' as const;
-const LENS = '0x63449a654091e81c93DA574e29ddcFCc4E6FF65E' as const;
+const CORE = '0x38036CAec40984A0A065C5eBa47BB63A06be4cd9' as const;
+const LENS = '0xD3D04E9E10565587A20c9Bb7D69bE58e3F4383f6' as const;
 const MULTICALL = '0xcA11bde05977b3631167028862bE2a173976CA11' as const;
 
 const config: Config = {
