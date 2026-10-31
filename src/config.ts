@@ -40,14 +40,14 @@ export type ContractName = 'core' | 'lens';
 
 export const CONTRACT_NAMES: readonly ContractName[] = ['core', 'lens'];
 
-/** 2026-10-16 monolith stack, Monad testnet (10143). Mirrors the UI address book. */
+/** 2026-10-31 monolith stack, Monad testnet (10143). Mirrors the UI address book. */
 const MONAD_TESTNET_CONTRACTS: Record<ContractName, string> = {
-  core: '0x38036CAec40984A0A065C5eBa47BB63A06be4cd9',
-  lens: '0xD3D04E9E10565587A20c9Bb7D69bE58e3F4383f6',
+  core: '0x8d91Bb266f8911A30b8240991601Afc6042615dF',
+  lens: '0xa1560C1bDa1a33214958122AaF1d3c5a6fA687a0',
 };
 
 /** SchizoCore creation block — the deploy anchor the browser must never crawl from. */
-const MONAD_TESTNET_START_BLOCK = 71_642_912;
+const MONAD_TESTNET_START_BLOCK = 75_898_690;
 
 /** Canonical Multicall3 (same CREATE2 address on every chain); the UI batches through it too. */
 const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11';

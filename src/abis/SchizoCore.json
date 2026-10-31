@@ -2662,6 +2662,19 @@
   },
   {
     "type": "function",
+    "name": "sweepPending",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "takeOffer",
     "inputs": [
       {
@@ -4643,6 +4656,11 @@
   {
     "type": "error",
     "name": "SplitParamsMustSum10000",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SweepBudgetZero",
     "inputs": []
   },
   {
