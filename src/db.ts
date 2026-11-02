@@ -137,9 +137,12 @@ export function openStore(dbPath: string, startBlock: bigint) {
       value TEXT NOT NULL
     );
 
+    -- head_at is the head the rewind cut back from: only a client whose cursor sits in
+    -- [block_num, head_at] can still hold a rewound log.
     CREATE TABLE IF NOT EXISTS reorgs (
       block_num INTEGER PRIMARY KEY,
-      seen_at   INTEGER NOT NULL
+      seen_at   INTEGER NOT NULL,
+      head_at   INTEGER
     );
 
     -- Every address with a PlayerRegistered log, across all rounds. The Registry is never
@@ -177,6 +180,14 @@ export function openStore(dbPath: string, startBlock: bigint) {
     CREATE INDEX IF NOT EXISTS policy_nations_by_block
       ON policy_nations (block_num);
   `);
+
+  // Volumes created before head_at existed. Their rows keep a null head_at and are never
+  // reported again: without it there is no telling which cursors predate the rewind, and
+  // reporting them to every cursor above the block wiped clients' feeds on each poll.
+  const reorgColumns = db.pragma('table_info(reorgs)') as { name: string }[];
+  if (!reorgColumns.some((column) => column.name === 'head_at')) {
+    db.exec('ALTER TABLE reorgs ADD COLUMN head_at INTEGER');
+  }
 
   const getMeta = db.prepare<[string], { value: string }>(
     'SELECT value FROM meta WHERE key = ?',
@@ -281,17 +292,18 @@ export function openStore(dbPath: string, startBlock: bigint) {
   const deletePresenceFrom = db.prepare('DELETE FROM presence WHERE first_block >= ?');
   const deletePolicyNationsFrom = db.prepare('DELETE FROM policy_nations WHERE block_num >= ?');
   const insertReorg = db.prepare(
-    'INSERT INTO reorgs (block_num, seen_at) VALUES (?, ?) ' +
-      'ON CONFLICT(block_num) DO UPDATE SET seen_at = excluded.seen_at',
+    'INSERT INTO reorgs (block_num, seen_at, head_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(block_num) DO UPDATE SET seen_at = excluded.seen_at, ' +
+      'head_at = MAX(COALESCE(head_at, 0), excluded.head_at)',
   );
   const pruneReorgs = db.prepare('DELETE FROM reorgs WHERE block_num < ?');
 
-  const rewindTx = db.transaction((fromBlock: bigint, cursor: Cursor) => {
+  const rewindTx = db.transaction((fromBlock: bigint, headAt: bigint, cursor: Cursor) => {
     deleteFrom.run(Number(fromBlock));
     deletePlayersFrom.run(Number(fromBlock));
     deletePresenceFrom.run(Number(fromBlock));
     deletePolicyNationsFrom.run(Number(fromBlock));
-    insertReorg.run(Number(fromBlock), Date.now());
+    insertReorg.run(Number(fromBlock), Date.now(), Number(headAt));
     pruneReorgs.run(Number(fromBlock) - 10_000);
     setMeta.run('next_from', cursor.nextFrom.toString());
     setMeta.run('confirmed_hash', cursor.confirmedHash ?? '');
@@ -313,8 +325,9 @@ export function openStore(dbPath: string, startBlock: bigint) {
       LIMIT ?`,
   );
 
-  const reorgSince = db.prepare<[number], { block_num: number }>(
-    'SELECT MIN(block_num) AS block_num FROM reorgs WHERE block_num <= ?',
+  // A cursor above head_at was handed out after the rewind, from the canonical chain.
+  const reorgSince = db.prepare<[number, number], { block_num: number }>(
+    'SELECT MIN(block_num) AS block_num FROM reorgs WHERE block_num <= ? AND head_at >= ?',
   );
 
   const countAll = db.prepare<[], { n: number }>(
@@ -462,7 +475,7 @@ export function openStore(dbPath: string, startBlock: bigint) {
 
     /** Drop everything at or above `fromBlock` and record the reorg for clients. */
     rewind(fromBlock: bigint, cursor: Cursor): void {
-      rewindTx(fromBlock, cursor);
+      rewindTx(fromBlock, this.headBlock(), cursor);
     },
 
     /** Block the service is current as of (the last block it has fully ingested). */
@@ -529,9 +542,13 @@ export function openStore(dbPath: string, startBlock: bigint) {
       return nationPolicy.all(nationId, this.roundStartBlock()).map(toWire);
     },
 
-    /** Lowest block a reorg invalidated at or below `since`, if any. */
+    /**
+     * Lowest block a reorg invalidated that a client at `since` may still hold, if any: the
+     * rewound block is at or below `since`, and `since` is no newer than the head the rewind cut
+     * back from. Once a client's cursor passes that head it is never told again.
+     */
     reorgFrom(since: bigint): bigint | null {
-      const row = reorgSince.get(Number(since));
+      const row = reorgSince.get(Number(since), Number(since));
       return row?.block_num == null ? null : BigInt(row.block_num);
     },
 

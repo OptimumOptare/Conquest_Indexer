@@ -205,8 +205,13 @@ export function createHttpHandler(
             send(res, 400, { error: 'since must be a block number' }, headers);
             return;
           }
-          const page = store.eventsSince(since, EVENTS_ROW_LIMIT);
+          // The client drops everything from `reorgFrom` up, so the page restarts there: it
+          // re-sends the canonical logs the client held, not only what lies above `since`.
           const reorgFrom = store.reorgFrom(since);
+          const page = store.eventsSince(
+            reorgFrom !== null ? reorgFrom - 1n : since,
+            EVENTS_ROW_LIMIT,
+          );
           send(
             res,
             200,

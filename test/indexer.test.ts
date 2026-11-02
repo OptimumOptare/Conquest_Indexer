@@ -270,16 +270,54 @@ describe('store', () => {
   it('reports a reorg to clients that already hold the invalidated blocks', () => {
     const store = openStore(':memory:', 100n);
     store.commit([stored(recruited(105n, 0))], {
-      nextFrom: 106n,
-      confirmedHash: hash(105),
+      nextFrom: 111n,
+      confirmedHash: hash(110),
     });
     store.rewind(105n, { nextFrom: 105n, confirmedHash: hash(104) });
 
     expect(store.eventsSince(104n, 10).logs).toHaveLength(0);
     expect(store.reorgFrom(110n)).toBe(105n);
+    expect(store.reorgFrom(105n)).toBe(105n);
     // A client that never got past 104 was never told anything wrong.
     expect(store.reorgFrom(104n)).toBeNull();
     store.close();
+  });
+
+  it('stops reporting a reorg once the cursor is past the head it rewound from', () => {
+    const store = openStore(':memory:', 100n);
+    store.commit([stored(recruited(105n, 0))], { nextFrom: 111n, confirmedHash: hash(110) });
+    store.rewind(105n, { nextFrom: 105n, confirmedHash: hash(104) });
+    store.commit([stored(recruited(106n, 0))], { nextFrom: 130n, confirmedHash: hash(129) });
+
+    // Cursors above 110 were handed out after the rewind. Telling them again would wipe
+    // everything they hold above 104 on every poll.
+    expect(store.reorgFrom(111n)).toBeNull();
+    expect(store.reorgFrom(129n)).toBeNull();
+    store.close();
+  });
+
+  it('never reports reorg rows recorded before head_at existed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'schizo-indexer-'));
+    const dbPath = join(dir, 'legacy.db');
+    try {
+      const legacy = new Database(dbPath);
+      legacy.exec(
+        'CREATE TABLE reorgs (block_num INTEGER PRIMARY KEY, seen_at INTEGER NOT NULL);' +
+          'INSERT INTO reorgs (block_num, seen_at) VALUES (105, 1);',
+      );
+      legacy.close();
+
+      const store = openStore(dbPath, 100n);
+      expect(store.reorgFrom(110n)).toBeNull();
+
+      // Rewinds recorded on the migrated table are reported as usual.
+      store.commit([stored(recruited(120n, 0))], { nextFrom: 126n, confirmedHash: hash(125) });
+      store.rewind(120n, { nextFrom: 120n, confirmedHash: hash(119) });
+      expect(store.reorgFrom(125n)).toBe(120n);
+      store.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -465,6 +503,34 @@ describe('http surface', () => {
     expect(response.status).toBe(200);
     expect(response.body.logs).toHaveLength(1);
     expect(response.body.logs[0].blockNumber).toBe('103');
+  });
+
+  it('re-serves /events from a reorg, then stops reporting it past the rewound head', async () => {
+    const store = openStore(':memory:', 100n);
+    store.commit([stored(recruited(103n, 0)), stored(recruited(107n, 0))], {
+      nextFrom: 111n,
+      confirmedHash: hash(110),
+    });
+    store.rewind(105n, { nextFrom: 105n, confirmedHash: hash(104) });
+    store.commit([stored(recruited(106n, 0)), stored(recruited(112n, 0))], {
+      nextFrom: 120n,
+      confirmedHash: hash(119),
+    });
+
+    // A cursor from before the rewind: drop above 104, and get the canonical 106 back.
+    const stale = await request(store, '/events?since=110');
+    expect(stale.body.reorgFrom).toBe('105');
+    expect((stale.body.logs as { blockNumber: string }[]).map((log) => log.blockNumber)).toEqual([
+      '106',
+      '112',
+    ]);
+    expect(stale.body.asOfBlock).toBe('119');
+
+    // The cursor that response handed out is past 110: no reorg, only new logs.
+    const next = await request(store, '/events?since=119');
+    expect(next.body.reorgFrom).toBeUndefined();
+    expect(next.body.logs).toEqual([]);
+    store.close();
   });
 
   it('rejects a missing/garbage since', async () => {

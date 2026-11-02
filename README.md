@@ -8,7 +8,7 @@ over HTTP so browsers never crawl the chain for history:
 | Route | Purpose |
 |---|---|
 | `GET /snapshot` | Current feed history (per-category rings, current round only) + `asOfBlock` |
-| `GET /events?since=<block>` | Deltas above `<block>`, polled on the client's ~2 s cadence |
+| `GET /events?since=<block>` | Deltas above `<block>`, polled on the client's ~2 s cadence. If a reorg rewound a block at or below `<block>` while the indexer's head was at or above it, the body carries `reorgFrom`: the client drops everything from that block up, and the logs restart there. A cursor handed out after the rewind is never told again |
 | `GET /health` | `headBlock`, `chainTip`, `lagBlocks`, `catchingUp`, `lastError`, and the `/positions` and `/leaderboard` caches' state |
 | `GET /players` | Every address with a `PlayerRegistered` log, **all rounds**, ascending (U22.1) |
 | `GET /presence` | Every (player, province) pair of the current round, `{ [player]: number[] }` (U22.1) |
