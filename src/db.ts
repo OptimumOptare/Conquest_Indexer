@@ -189,6 +189,13 @@ export function openStore(dbPath: string, startBlock: bigint) {
     db.exec('ALTER TABLE reorgs ADD COLUMN head_at INTEGER');
   }
 
+  // U25.1 moved InfectionSpread out of news. Rows ingested before then keep their old category
+  // unless re-filed here, and /snapshot would serve them as news again. A no-op once done.
+  db.exec(
+    "UPDATE events SET category = 'infection' " +
+      "WHERE event_name = 'InfectionSpread' AND category <> 'infection'",
+  );
+
   const getMeta = db.prepare<[string], { value: string }>(
     'SELECT value FROM meta WHERE key = ?',
   );

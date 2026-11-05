@@ -283,7 +283,7 @@ volume — otherwise this serves a dead stack's history.
 
 ```
 src/config.ts   env → typed config; M23 address book defaults (SchizoCore + SchizoLens)
-src/catalog.ts  §16 categories + `market` (D46) + UD11 ring limits (copy of the UI's, checked by sync:abis)
+src/catalog.ts  §16 categories + `market` (D46) + `infection` (U25.1) + UD11 ring limits (copy of the UI's, checked by sync:abis)
 src/db.ts       SQLite: events, cursor, reorg log, players/presence/policy_nations; snapshot/delta/index queries
 src/indexes.ts  UD24 index facts per log: registrations, presence pairs (troopPresence.ts port)
 src/policy.ts   /policy nation-id topics per policy event, checked against the catalog and ABI at boot

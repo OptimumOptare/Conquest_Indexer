@@ -172,6 +172,14 @@ describe('§16 catalog', () => {
       expect(categorizeEvent(name)).toBeNull();
     }
   });
+
+  it('U25.1 InfectionSpread is the infection ring; its tick stays news', () => {
+    expect(categorizeEvent('InfectionSpread')).toBe('infection');
+    expect(catalogEvents('infection')).toEqual(['InfectionSpread']);
+    expect(catalogEvents('news')).not.toContain('InfectionSpread');
+    expect(categorizeEvent('TickAdvanced')).toBe('news');
+    expect(FEED_BUFFER_LIMITS.infection).toBe(1_000);
+  });
 });
 
 describe('log decoding', () => {
@@ -782,6 +790,46 @@ describe('/players (UD24)', () => {
       true,
     );
     store.close();
+  });
+
+  it('keeps stamps in their own ring: a 300-province tick does not evict news (U25.1)', async () => {
+    const store = openStore(':memory:', 100n);
+    const logs: ReturnType<typeof coreLog>[] = [deployed(9, 101n)];
+    for (let i = 0; i < FEED_BUFFER_LIMITS.news + 100; i++) logs.push(infected(i + 1, 102n, i));
+    logs.push(ticked(0n, 102n, FEED_BUFFER_LIMITS.news + 100));
+    commitAll(store, logs, 103n);
+
+    const snapshot = await request(store, '/snapshot');
+    const blocks = snapshot.body.logs.map((log: { blockNumber: string }) => log.blockNumber);
+    expect(snapshot.body.logs).toHaveLength(FEED_BUFFER_LIMITS.news + 102);
+    expect(blocks).toContain('101');
+    store.close();
+  });
+
+  it('re-files InfectionSpread rows stored as news before U25.1', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'indexer-u25-'));
+    const path = join(dir, 'indexer.db');
+    try {
+      const store = openStore(path, 100n);
+      commitAll(store, [infected(4, 101n), ticked(0n, 101n, 1)], 102n);
+      store.close();
+      const raw = new Database(path);
+      raw.prepare("UPDATE events SET category = 'news' WHERE event_name = 'InfectionSpread'").run();
+      raw.close();
+
+      openStore(path, 100n).close();
+      const check = new Database(path, { readonly: true });
+      const rows = check
+        .prepare('SELECT event_name, category FROM events ORDER BY log_index')
+        .all();
+      check.close();
+      expect(rows).toEqual([
+        { event_name: 'InfectionSpread', category: 'infection' },
+        { event_name: 'TickAdvanced', category: 'news' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('returns every registration past the 200-row meta ring', async () => {
